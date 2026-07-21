@@ -18,6 +18,7 @@
     "test:e2e:report": "playwright show-report",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "typecheck:server": "tsc -p tsconfig.server.json",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio"
   },

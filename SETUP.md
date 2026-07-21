@@ -83,6 +83,38 @@ The cloud DB doesn't exist until you deploy. When you're ready:
 2. **Claim it into a free Neon account** (our decision — keeps it permanently $0 and off Netlify's
    credit pool): dashboard → Database panel → **Connect Neon** / **Claim database**.
 
+## Phase 3 — Booking core (test locally)
+
+With `netlify dev` running in one terminal, do the following in a second terminal.
+
+1. **Apply the new overlap-constraint migration** to the local DB:
+   ```bash
+   netlify database migrations apply
+   ```
+   > This applies `..._booking_overlap_constraint` — a range-only daterange EXCLUDE constraint
+   > (uses Postgres's built-in GiST range operators; no extension required).
+
+2. **Seed the settings row** (prices are in CENTS; e.g. $150.00/night, $75.00 cleaning, 2-night min):
+   ```bash
+   netlify database connect --query "INSERT INTO settings (nightly_rate, cleaning_fee, min_nights) VALUES (15000, 7500, 2)"
+   ```
+
+3. **Test availability** (should return `{ "blocked": [] }` initially):
+   ```powershell
+   Invoke-RestMethod http://localhost:8888/api/check-availability
+   ```
+
+4. **Create a booking** (PowerShell-friendly):
+   ```powershell
+   $body = @{ checkIn="2026-09-01"; checkOut="2026-09-04"; guestName="Test Guest"; guestEmail="test@example.com"; guests=2 } | ConvertTo-Json
+   Invoke-RestMethod -Method Post -Uri http://localhost:8888/api/create-booking -ContentType "application/json" -Body $body
+   ```
+   Expect a `reservationId`, `amountTotal` (52500 = 3 × 15000 + 7500), and `holdExpiresAt`.
+
+5. **Prove double-booking is blocked** — run the same command again (overlapping dates). Expect an
+   HTTP 409 "Those dates were just taken" (the EXCLUDE constraint rejecting the overlap). Re-running
+   `check-availability` should now show your first booking as a blocked range.
+
 ## First production deploy
 
 ```bash
@@ -110,6 +142,6 @@ out of `netlify.toml` and any tracked `.env`.
 
 ## Where we are
 
-Phases 1–2 (the skeleton) are code-complete pending your account steps above. Next up when you're
-ready: **Phase 3 — availability + booking core** (the `check-availability`, `create-booking`, and
-`expire-holds` functions, plus the Postgres overlap-prevention constraint).
+Phases 1–3 are code-complete. Skeleton + database + booking core (availability, create-booking with
+overlap-proof holds, expire-holds cron) are done and type-checked. Verify Phase 3 locally with the
+steps above. Next up: **Phase 4 — Stripe** (charge the held reservation; confirm via webhook).
