@@ -14,9 +14,11 @@ Reference: the full technical plan lives at
 - ✅ `netlify.toml` — build, functions dir, `netlify dev` config, `/api/*` → functions redirect.
 - ✅ `netlify/functions/health.mts` — a health-check endpoint (`/api/health`).
 - ✅ Database code scaffolded: `db/schema.ts` (reservations, external_blocks, settings,
-  processed_webhook_events), `db/client.ts` (Drizzle + `@netlify/neon`), `drizzle.config.ts`.
-- ✅ First migration generated: `netlify/database/migrations/0000_*.sql`.
-- ✅ Scripts: `pnpm db:generate | db:migrate | db:push | db:studio`.
+  processed_webhook_events), `db/client.ts` (Drizzle `netlify-db` adapter), `drizzle.config.ts`.
+- ✅ Packages: `@netlify/database` + `drizzle-orm@beta` + `drizzle-kit@beta` (the beta channel is
+  what ships the `drizzle-orm/netlify-db` adapter Netlify's docs recommend).
+- ✅ First migration generated (timestamp-prefixed): `netlify/database/migrations/<ts>_*/migration.sql`.
+- ✅ Scripts: `pnpm db:generate` (create migrations), `pnpm db:studio` (inspect data).
 
 ---
 
@@ -44,23 +46,42 @@ netlify dev          # serves the app + functions on http://localhost:8888
 Then open `http://localhost:8888/api/health` — you should see
 `{ "ok": true, "service": "cabin-between-rivers", ... }`.
 
-## Phase 2 — Provision the database + claim it to Neon Free  *(you)*
+## Phase 2 — Database
 
-1. Provision the Netlify-managed Postgres:
+There are two databases: a **local** one (for development, started by `netlify dev`) and the
+**cloud** one (auto-provisioned on your first deploy, because `@netlify/database` is a dependency).
+
+### Develop locally (no deploy, no credits)
+
+1. Start the dev environment (leave running):
    ```bash
-   netlify db init
+   netlify dev
    ```
-   This injects `NETLIFY_DATABASE_URL` (and an unpooled variant) into the project.
-2. **Claim it into a free Neon account immediately** (this is the decision we made — it keeps the
-   database permanently $0 and off Netlify's credit pool): in the Netlify dashboard open the
-   database/extension panel and choose **Connect Neon** / **Claim database**, creating a free
-   Neon login when prompted. Confirm the exact **unpooled** env-var name shown in your project's
-   Environment variables panel (it should be `NETLIFY_DATABASE_URL_UNPOOLED`).
-3. Apply the migration (run through the CLI so the DB env vars are injected):
+2. In a second terminal, apply the migration to the local database:
    ```bash
-   netlify dev:exec -- pnpm db:migrate
+   netlify database migrations apply
    ```
-   Optionally inspect data with `netlify dev:exec -- pnpm db:studio`.
+3. Verify / inspect:
+   ```bash
+   netlify db status                                # should show the migration as applied
+   netlify dev:exec -- pnpm db:studio               # browse tables/data
+   ```
+
+### Migration workflow (going forward)
+
+You do **not** run `drizzle-kit migrate` (that would fight Netlify's migration tracker). Instead:
+```bash
+pnpm db:generate                    # after editing db/schema.ts -> new timestamped migration
+netlify database migrations apply   # apply to the local DB
+```
+Netlify applies pending migrations to the **cloud** DB automatically on deploy.
+
+### Provision + claim the cloud database  *(at first deploy)*
+
+The cloud DB doesn't exist until you deploy. When you're ready:
+1. `netlify deploy --build --prod` — Netlify provisions the cloud Postgres and applies migrations.
+2. **Claim it into a free Neon account** (our decision — keeps it permanently $0 and off Netlify's
+   credit pool): dashboard → Database panel → **Connect Neon** / **Claim database**.
 
 ## First production deploy
 

@@ -8,7 +8,7 @@ CREATE TABLE "external_blocks" (
 );
 --> statement-breakpoint
 CREATE TABLE "processed_webhook_events" (
-	"event_id" varchar(255) PRIMARY KEY NOT NULL,
+	"event_id" varchar(255) PRIMARY KEY,
 	"processed_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -36,4 +36,4 @@ CREATE TABLE "settings" (
 	"vrbo_ical_url" text
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX "external_blocks_source_uid_idx" ON "external_blocks" USING btree ("source","uid");
+CREATE UNIQUE INDEX "external_blocks_source_uid_idx" ON "external_blocks" ("source","uid");
