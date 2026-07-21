@@ -1,0 +1,24 @@
+# Netlify configuration — see https://docs.netlify.com/build/configure-builds/file-based-configuration/
+# NOTE: never put secrets here (this file is committed to git). Secrets go in the
+# Netlify UI/CLI with the "Functions" scope. See SETUP.md.
+
+[build]
+  command = "pnpm build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# `netlify dev` runs Vite + Functions together on http://localhost:8888
+[dev]
+  framework = "vite"
+  targetPort = 5173
+  port = 8888
+
+# Friendly API paths: /api/health -> /.netlify/functions/health
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true

@@ -17,13 +17,19 @@
     "test:e2e": "playwright test",
     "test:e2e:report": "playwright show-report",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
+    "@netlify/neon": "^0.1.2",
     "@tanstack/react-query": "^5.101.0",
     "@tanstack/react-router": "^1.170.16",
     "dayjs": "^1.11.21",
+    "drizzle-orm": "^0.44.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.80.0",
@@ -33,6 +39,7 @@
   "devDependencies": {
     "@eslint/compat": "^2.1.0",
     "@eslint/js": "9.39.4",
+    "@netlify/functions": "^4.0.0",
     "@playwright/test": "^1.61.0",
     "@tailwindcss/vite": "^4.3.1",
     "@tanstack/router-plugin": "^1.168.18",
@@ -48,6 +55,7 @@
     "@vitejs/plugin-react-swc": "^4.3.1",
     "@vitest/coverage-v8": "4.1.9",
     "autoprefixer": "^10.5.0",
+    "drizzle-kit": "^0.31.0",
     "eslint": "9.39.4",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",
