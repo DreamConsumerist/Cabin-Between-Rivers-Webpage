@@ -1,7 +1,6 @@
 import { fixupPluginRules } from '@eslint/compat';
 import eslintJS from "@eslint/js"
 import tsParser from '@typescript-eslint/parser';
-//import eslintPluginStorybook from "eslint-plugin-storybook" // does not support eslint v9
 import eslintConfigPrettier from "eslint-config-prettier"
 import eslintPluginImport from 'eslint-plugin-import'
 import jsxA11yPlugin from 'eslint-plugin-jsx-a11y'
