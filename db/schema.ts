@@ -70,3 +70,19 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 		.notNull()
 		.defaultNow(),
 });
+
+// About-page gallery photos, managed from /admin. Image bytes live in Netlify
+// Blobs (keyed by blobKey); this row is the display metadata. width/height are
+// the image's natural pixel dimensions, captured at upload time so the gallery
+// can pick a sensible mosaic layout without re-fetching the image client-side.
+export const galleryPhotos = pgTable("gallery_photos", {
+	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	blobKey: varchar("blob_key", { length: 255 }).notNull(),
+	alt: varchar({ length: 255 }).notNull(),
+	width: integer().notNull(),
+	height: integer().notNull(),
+	position: integer().notNull(),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+});

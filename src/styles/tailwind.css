@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+@theme {
+	/* Warm, earthy accent — used for primary actions and selected dates. */
+	--color-brand-50: #f7f4ef;
+	--color-brand-100: #ece4d4;
+	--color-brand-200: #d9c7a4;
+	--color-brand-300: #c3a878;
+	--color-brand-400: #ab8a57;
+	--color-brand-500: #8f7040;
+	--color-brand-600: #725933;
+	--color-brand-700: #5a462a;
+	--color-brand-800: #423422;
+	--color-brand-900: #2c2318;
+}

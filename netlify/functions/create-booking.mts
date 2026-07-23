@@ -6,11 +6,11 @@ import {
 	nightsBetween,
 } from "../../lib/booking";
 import {
-	EXCLUSION_VIOLATION,
 	expireLapsedHolds,
 	getSettings,
 	hasExternalBlockOverlap,
 	insertPendingReservation,
+	isOverlapError,
 } from "../../lib/availability";
 
 // POST /api/create-booking
@@ -69,7 +69,7 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			201
 		);
 	} catch (e) {
-		if ((e as { code?: string }).code === EXCLUSION_VIOLATION) {
+		if (isOverlapError(e)) {
 			return error("Those dates were just taken", 409);
 		}
 		console.error("create-booking failed", e);

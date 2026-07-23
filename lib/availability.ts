@@ -90,6 +90,39 @@ export const getSettings = async () => {
 	return rows[0] ?? null;
 };
 
+export type SettingsUpdate = {
+	nightlyRate: number;
+	cleaningFee: number;
+	minNights: number;
+	airbnbIcalUrl: string | null;
+	vrboIcalUrl: string | null;
+};
+
+// The settings table is always a single row (see db/schema.ts) — update it if
+// it exists, otherwise create it (e.g. before it's ever been seeded).
+export const upsertSettings = async (update: SettingsUpdate) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set(update)
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+export const getReservationById = async (id: number) => {
+	const rows = await db
+		.select()
+		.from(reservations)
+		.where(eq(reservations.id, id))
+		.limit(1);
+	return rows[0] ?? null;
+};
+
 export type NewReservation = {
 	checkIn: string;
 	checkOut: string;
@@ -103,6 +136,41 @@ export type NewReservation = {
 // Postgres exclusion-violation error code — thrown when the EXCLUDE constraint
 // rejects an overlapping reservation.
 export const EXCLUSION_VIOLATION = "23P01";
+
+const OVERLAP_CONSTRAINT = "reservations_no_overlap";
+
+// Detects the overlap-constraint violation across every shape it can arrive in:
+// node-postgres (local `netlify dev`) and Neon HTTP (production) expose `.code`
+// and `.constraint` differently, and Drizzle may wrap the driver error in
+// `.cause`. We walk the cause chain and also fall back to the message text.
+export const isOverlapError = (e: unknown): boolean => {
+	let current: unknown = e;
+	for (let depth = 0; depth < 6 && current != null; depth++) {
+		const err = current as {
+			code?: unknown;
+			constraint?: unknown;
+			cause?: unknown;
+		};
+		if (err.code === EXCLUSION_VIOLATION) return true;
+		if (err.constraint === OVERLAP_CONSTRAINT) return true;
+		current = err.cause;
+	}
+	const message = e instanceof Error ? e.message : String(e);
+	return message.includes(OVERLAP_CONSTRAINT) || /exclusion constraint/i.test(message);
+};
+
+// Lets a guest abandon their own still-pending hold (e.g. going back to change
+// dates) so those dates free up immediately instead of waiting out the full
+// hold window. Only ever transitions pending -> cancelled; already-confirmed
+// reservations are left untouched by this WHERE clause.
+export const cancelPendingReservation = async (id: number): Promise<boolean> => {
+	const rows = await db
+		.update(reservations)
+		.set({ status: "cancelled" })
+		.where(and(eq(reservations.id, id), eq(reservations.status, "pending")))
+		.returning({ id: reservations.id });
+	return rows.length > 0;
+};
 
 export const insertPendingReservation = async (r: NewReservation) => {
 	const holdExpiresAt = new Date(Date.now() + HOLD_MINUTES * 60_000);
