@@ -293,6 +293,20 @@ Next up: **Phase 5 — iCal sync** (the only remaining phase from the original p
 
 ## Known issues / TODO
 
+- **Terms & Conditions isn't editable from `/admin`** — `public/terms.html` is a static file that
+  guests read during the booking flow's Terms step (`TermsStep.tsx`). Changing the wording currently
+  means editing the file and redeploying. Would need somewhere to store the content (a `settings`
+  column, or its own table if it needs versioning/history), an admin editor (rich text or plain
+  textarea), and a route/function serving the current content instead of (or in addition to) the
+  static page.
+
+- **iCal import/export sync (Phase 5) isn't built yet** — the admin Settings tab already lets you
+  *enter* the Airbnb/Vrbo iCal URLs (`airbnbIcalUrl`/`vrboIcalUrl` on the `settings` table), but
+  nothing reads those feeds into `external_blocks` yet, and there's no exported `/calendar.ics` for
+  Airbnb/Vrbo to import back. This is the last remaining phase from the original plan (see "Where we
+  are" above) — without it, `hasExternalBlockOverlap` in `lib/availability.ts` always sees an empty
+  `external_blocks` table, so double-booking against Airbnb/Vrbo isn't actually prevented yet.
+
 - **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
   If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as
   its Stripe payment completes, and someone else books those same dates first, the webhook's

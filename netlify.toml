@@ -22,3 +22,15 @@
   to = "/.netlify/functions/:splat"
   status = 200
   force = true
+
+# SPA fallback: this is a client-side-routed app (TanStack Router), so any path
+# without a matching static file (a direct load/refresh/bookmark of /about,
+# /admin, /booking, etc. — not a client-side navigation) must still serve
+# index.html and let the router take over, rather than 404. Netlify only
+# applies this when no real static file matches the path, so actual assets
+# (JS/CSS/images) are unaffected. Must stay after the /api/* rule above so API
+# calls aren't caught by this catch-all first.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
