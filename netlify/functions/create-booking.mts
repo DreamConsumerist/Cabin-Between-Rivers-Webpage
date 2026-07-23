@@ -1,5 +1,5 @@
 import type { Context } from "@netlify/functions";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
 import {
 	computeTotalCents,
 	createBookingSchema,
@@ -22,14 +22,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
 
-	let body: unknown;
-	try {
-		body = await req.json();
-	} catch {
-		return error("Invalid JSON body");
-	}
+	const parsedBody = await parseJsonBody(req);
+	if (!parsedBody.ok) return parsedBody.response;
 
-	const parsed = createBookingSchema.safeParse(body);
+	const parsed = createBookingSchema.safeParse(parsedBody.body);
 	if (!parsed.success) {
 		return json({ error: "Invalid booking", issues: parsed.error.issues }, 400);
 	}

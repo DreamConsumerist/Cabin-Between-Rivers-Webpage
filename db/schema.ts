@@ -11,6 +11,15 @@ import {
 // All money is stored as integer CENTS (matches Stripe's smallest-currency-unit
 // convention and avoids floating-point rounding).
 
+// The reservation lifecycle. Not a DB-level enum/CHECK constraint (the column
+// is still a plain varchar — changing that needs a migration), but every
+// backend read/write of `status` should go through this type so a typo or an
+// unsynchronized new value is a compile error instead of a silent orphan
+// state. See lib/availability.ts, netlify/functions/stripe-webhook.mts, and
+// netlify/functions/create-payment.mts for where these are checked/set.
+export const RESERVATION_STATUSES = ["pending", "confirmed", "expired", "cancelled"] as const;
+export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
+
 // Bookings made on THIS site. `status` drives availability:
 //   pending   — held while the guest completes payment (see holdExpiresAt)
 //   confirmed — payment succeeded (set by the Stripe webhook)
@@ -25,7 +34,7 @@ export const reservations = pgTable("reservations", {
 	guestPhone: varchar("guest_phone", { length: 50 }),
 	guests: integer().notNull().default(1),
 	amountTotal: integer("amount_total").notNull(),
-	status: varchar({ length: 20 }).notNull().default("pending"),
+	status: varchar({ length: 20 }).$type<ReservationStatus>().notNull().default("pending"),
 	holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
 	stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
@@ -78,7 +87,7 @@ export const processedWebhookEvents = pgTable("processed_webhook_events", {
 export const galleryPhotos = pgTable("gallery_photos", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
 	blobKey: varchar("blob_key", { length: 255 }).notNull(),
-	alt: varchar({ length: 255 }).notNull(),
+	alt: varchar({ length: 255 }),
 	width: integer().notNull(),
 	height: integer().notNull(),
 	position: integer().notNull(),

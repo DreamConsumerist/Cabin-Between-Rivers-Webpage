@@ -27,7 +27,7 @@ const UploadForm = (): FunctionComponent => {
 
 	const handleSubmit = (event: FormEvent): void => {
 		event.preventDefault();
-		if (!file || !alt.trim()) return;
+		if (!file) return;
 		upload.mutate(
 			{ file, alt: alt.trim() },
 			{
@@ -48,16 +48,17 @@ const UploadForm = (): FunctionComponent => {
 				<span className="text-sm font-medium text-neutral-700">Photo</span>
 				<input
 					accept="image/jpeg,image/png,image/webp,image/gif"
+					className="text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
 					type="file"
 					onChange={(event) => { setFile(event.target.files?.[0] ?? null); }}
 				/>
 			</label>
 			<TextField
-				label="Caption"
+				label="Caption (optional)"
 				value={alt}
 				onChange={(event) => { setAlt(event.target.value); }}
 			/>
-			<Button disabled={!file || !alt.trim() || upload.isPending} type="submit">
+			<Button disabled={!file || upload.isPending} type="submit">
 				{upload.isPending ? "Uploading…" : "Add photo"}
 			</Button>
 			{upload.isError && <p className="w-full text-sm text-red-600">{upload.error.message}</p>}
@@ -76,13 +77,14 @@ type PhotoRowProps = {
 const PhotoRow = ({ photo, isFirst, isLast, onMoveUp, onMoveDown }: PhotoRowProps): FunctionComponent => {
 	const updateCaption = useUpdateGalleryPhotoCaption();
 	const deletePhoto = useDeleteGalleryPhoto();
-	const [alt, setAlt] = useState(photo.alt);
+	const [alt, setAlt] = useState(photo.alt ?? "");
 
 	return (
 		<li className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3">
-			<img alt={photo.alt} className="h-16 w-16 shrink-0 rounded-lg object-cover" src={photo.src} />
+			<img alt={photo.alt ?? "Gallery photo"} className="h-16 w-16 shrink-0 rounded-lg object-cover" src={photo.src} />
 			<input
 				className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
+				placeholder="Caption (optional)"
 				value={alt}
 				onChange={(event) => { setAlt(event.target.value); }}
 			/>
@@ -105,7 +107,7 @@ const PhotoRow = ({ photo, isFirst, isLast, onMoveUp, onMoveDown }: PhotoRowProp
 				</button>
 				<Button
 					className="px-3 py-1.5 text-sm"
-					disabled={alt.trim() === photo.alt || alt.trim().length === 0 || updateCaption.isPending}
+					disabled={alt.trim() === (photo.alt ?? "") || updateCaption.isPending}
 					type="button"
 					variant="secondary"
 					onClick={() => { updateCaption.mutate({ id: photo.id, alt: alt.trim() }); }}

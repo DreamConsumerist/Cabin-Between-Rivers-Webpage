@@ -98,7 +98,7 @@ export const Calendar = ({ blocked, selection, onChange }: CalendarProps): Funct
 								!disabled && inMonth && !isEndpoint && !inRange
 									? "border-neutral-200 hover:border-brand-400 hover:bg-brand-50"
 									: "",
-								isEndpoint ? "border-brand-700 bg-brand-600 text-white" : "",
+								isEndpoint ? "border-brand-700 bg-brand-600 text-neutral-900" : "",
 								inRange ? "border-brand-200 bg-brand-200" : "",
 							].join(" ")}
 							onClick={() => { handleDayClick(date); }}

@@ -20,47 +20,60 @@ export const Admin = (): FunctionComponent => {
 
 	if (isPending) {
 		return (
-			<main className="mx-auto max-w-3xl px-8 py-16">
-				<p className="text-neutral-500">Loading…</p>
+			<main className="w-full">
+				<div className="mx-auto max-w-3xl px-8 py-16">
+					<p className="text-neutral-500">Loading…</p>
+				</div>
 			</main>
 		);
 	}
 
 	if (!data?.authenticated) {
 		return (
-			<main className="mx-auto flex max-w-3xl flex-col px-8 py-16">
-				<LoginForm />
+			<main className="w-full">
+				<div className="mx-auto flex max-w-3xl flex-col px-8 py-16">
+					<LoginForm />
+				</div>
 			</main>
 		);
 	}
 
 	return (
-		<main className="mx-auto flex max-w-3xl flex-col gap-8 px-8 py-16">
-			<div className="flex items-center justify-between">
-				<h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-				<Button variant="secondary" onClick={() => { logout.mutate(); }}>
-					Sign out
-				</Button>
-			</div>
-
-			<div className="flex gap-2 border-b border-neutral-200">
-				{(["gallery", "pricing"] as const).map((t) => (
-					<button
-						key={t}
-						type="button"
-						className={`px-4 py-2 text-sm font-medium ${
-							tab === t
-								? "border-b-2 border-brand-600 text-brand-700"
-								: "text-neutral-500 hover:text-neutral-700"
-						}`}
-						onClick={() => { setTab(t); }}
+		<main className="w-full">
+			<div className="mx-auto flex max-w-3xl flex-col gap-8 px-8 py-16">
+				<div className="flex items-center justify-between">
+					<h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
+					<Button
+						variant="secondary"
+						onClick={() => {
+							logout.mutate();
+						}}
 					>
-						{TAB_LABEL[t]}
-					</button>
-				))}
-			</div>
+						Sign out
+					</Button>
+				</div>
 
-			{tab === "gallery" ? <GalleryManager /> : <SettingsForm />}
+				<div className="flex gap-2 border-b border-neutral-200">
+					{(["gallery", "pricing"] as const).map((t) => (
+						<button
+							key={t}
+							type="button"
+							className={`px-4 py-2 text-sm font-medium ${
+								tab === t
+									? "border-b-2 border-brand-600 text-brand-700"
+									: "text-neutral-500 hover:text-neutral-700"
+							}`}
+							onClick={() => {
+								setTab(t);
+							}}
+						>
+							{TAB_LABEL[t]}
+						</button>
+					))}
+				</div>
+
+				{tab === "gallery" ? <GalleryManager /> : <SettingsForm />}
+			</div>
 		</main>
 	);
 };

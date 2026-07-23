@@ -3,7 +3,9 @@ import type { FunctionComponent } from "../../common/types";
 
 // width/height are the photo's natural pixel dimensions, known at upload time —
 // used to pick a mosaic span that matches its orientation (see spanClassName).
-export type GalleryPhoto = { id: string | number; src: string; alt: string; width: number; height: number };
+export type GalleryPhoto = { id: string | number; src: string; alt: string | null; width: number; height: number };
+
+const FALLBACK_ALT = "Gallery photo";
 
 type GalleryProps = { photos: Array<GalleryPhoto> };
 
@@ -66,7 +68,7 @@ const Lightbox = ({ photos, index, onClose, onPrev, onNext }: LightboxProps): Fu
 
 	return (
 		<div
-			aria-label={photo.alt}
+			aria-label={photo.alt ?? FALLBACK_ALT}
 			aria-modal="true"
 			className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4"
 			role="dialog"
@@ -97,7 +99,7 @@ const Lightbox = ({ photos, index, onClose, onPrev, onNext }: LightboxProps): Fu
 
 				<img
 					key={photo.id}
-					alt={photo.alt}
+					alt={photo.alt ?? FALLBACK_ALT}
 					className="max-h-full max-w-full rounded-lg object-contain"
 					src={photo.src}
 					onClick={(event) => {
@@ -119,10 +121,9 @@ const Lightbox = ({ photos, index, onClose, onPrev, onNext }: LightboxProps): Fu
 			</div>
 
 			<p className="pt-4 text-center text-sm text-white/80">
-				{photo.alt}
+				{photo.alt && `${photo.alt} · `}
 				<span className="text-white/50">
-					{" "}
-					· {index + 1} / {photos.length}
+					{index + 1} / {photos.length}
 				</span>
 			</p>
 		</div>
@@ -170,7 +171,7 @@ export const Gallery = ({ photos }: GalleryProps): FunctionComponent => {
 						ref={(element) => {
 							triggerRefs.current[index] = element;
 						}}
-						aria-label={`View photo: ${photo.alt}`}
+						aria-label={photo.alt ? `View photo: ${photo.alt}` : "View photo"}
 						className={`group relative aspect-square overflow-hidden rounded-xl sm:aspect-auto ${spanClassName(photo)}`}
 						type="button"
 						onClick={() => {
@@ -178,7 +179,7 @@ export const Gallery = ({ photos }: GalleryProps): FunctionComponent => {
 						}}
 					>
 						<img
-							alt={photo.alt}
+							alt={photo.alt ?? FALLBACK_ALT}
 							className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
 							src={photo.src}
 						/>

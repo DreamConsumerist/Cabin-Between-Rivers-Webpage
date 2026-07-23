@@ -6,8 +6,8 @@ const navLinkClass =
 
 export const Nav = (): FunctionComponent => {
 	return (
-		<header className="border-b border-neutral-200">
-			<nav className="mx-auto flex max-w-5xl items-center justify-between px-8 py-4">
+		<header className="relative z-10 bg-white shadow-md">
+			<nav className="flex items-center justify-between px-8 py-4">
 				<Link className="text-lg font-semibold tracking-tight" to="/">
 					Cabin Between Rivers
 				</Link>
@@ -19,7 +19,7 @@ export const Nav = (): FunctionComponent => {
 						About
 					</Link>
 					<Link
-						className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-700"
+						className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-neutral-900 transition-colors hover:bg-brand-700"
 						to="/booking"
 					>
 						Book now

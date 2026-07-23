@@ -14,10 +14,24 @@ import {
 	type GalleryPhoto,
 } from "./api";
 
-const GALLERY_QUERY_KEY = ["gallery"];
+// Shared with the About route's loader (via `queryClient.ensureQueryData`) so
+// a preload on link-hover and the `useGalleryPhotos` read below hit the same
+// cache entry instead of firing two separate fetches.
+export const GALLERY_QUERY_KEY = ["gallery"];
+
+// Photos only change via an admin action (upload/reorder/delete), which
+// already invalidates this query key directly — so treating a fetch as fresh
+// for a few minutes doesn't risk showing stale data, and stops every
+// link-hover preload (router `defaultPreload: "intent"`, defaultPreloadStaleTime: 0)
+// from refetching the whole list.
+export const GALLERY_STALE_TIME_MS = 5 * 60_000;
 
 export const useGalleryPhotos = (): UseQueryResult<{ photos: Array<GalleryPhoto> }, Error> =>
-	useQuery({ queryKey: GALLERY_QUERY_KEY, queryFn: fetchGalleryPhotos });
+	useQuery({
+		queryKey: GALLERY_QUERY_KEY,
+		queryFn: fetchGalleryPhotos,
+		staleTime: GALLERY_STALE_TIME_MS,
+	});
 
 // The admin gallery manager mutations all invalidate the same query so the
 // list (used by both the manager and the public About page) stays in sync.

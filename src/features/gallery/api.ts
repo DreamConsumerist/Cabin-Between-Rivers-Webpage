@@ -2,7 +2,7 @@ import { jsonFetch } from "../../common/utilities";
 
 export type GalleryPhoto = {
 	id: number;
-	alt: string;
+	alt: string | null;
 	width: number;
 	height: number;
 	src: string;
@@ -11,6 +11,16 @@ export type GalleryPhoto = {
 // Public — the About page's photo list, in display order.
 export const fetchGalleryPhotos = (): Promise<{ photos: Array<GalleryPhoto> }> =>
 	jsonFetch("/api/gallery");
+
+// Kicks off a browser fetch for each photo so they're already in the HTTP
+// cache by the time the gallery actually renders them (see the About route's
+// loader, which calls this on link-hover/navigation).
+export const preloadGalleryImages = (photos: Array<GalleryPhoto>): void => {
+	for (const photo of photos) {
+		const image = new Image();
+		image.src = photo.src;
+	}
+};
 
 // Everything below requires an admin session (see src/features/admin).
 

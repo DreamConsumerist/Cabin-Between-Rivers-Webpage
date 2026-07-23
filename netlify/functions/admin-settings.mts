@@ -1,6 +1,6 @@
 import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json } from "../../lib/http";
+import { error, json, parseJsonBody } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { getSettings, upsertSettings } from "../../lib/availability";
 
@@ -23,14 +23,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	}
 
 	if (req.method === "PUT") {
-		let body: unknown;
-		try {
-			body = await req.json();
-		} catch {
-			return error("Invalid JSON body");
-		}
+		const parsedBody = await parseJsonBody(req);
+		if (!parsedBody.ok) return parsedBody.response;
 
-		const parsed = updateSchema.safeParse(body);
+		const parsed = updateSchema.safeParse(parsedBody.body);
 		if (!parsed.success) return json({ error: "Invalid settings", issues: parsed.error.issues }, 400);
 
 		const settings = await upsertSettings({

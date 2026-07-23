@@ -12,3 +12,15 @@ export const error = (message: string, status = 400): Response =>
 // Guard a function to a single HTTP method; returns a 405 Response if it doesn't match.
 export const requireMethod = (req: Request, method: string): Response | null =>
 	req.method === method ? null : error(`Method not allowed`, 405);
+
+// Parses a JSON request body, returning a ready-to-return 400 Response instead
+// of throwing when the body isn't valid JSON.
+export type ParsedJsonBody = { ok: true; body: unknown } | { ok: false; response: Response };
+
+export const parseJsonBody = async (req: Request): Promise<ParsedJsonBody> => {
+	try {
+		return { ok: true, body: await req.json() };
+	} catch {
+		return { ok: false, response: error("Invalid JSON body") };
+	}
+};

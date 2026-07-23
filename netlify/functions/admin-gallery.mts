@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@netlify/functions";
 import { imageSize } from "image-size";
 import { z } from "zod";
-import { error, json } from "../../lib/http";
+import { error, json, parseJsonBody } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import {
 	deleteGalleryPhoto,
@@ -19,10 +19,10 @@ const MAX_BYTES = 10 * 1024 * 1024;
 const reorderSchema = z.object({ order: z.array(z.number().int().positive()).min(1) });
 const updateSchema = z.object({
 	id: z.number().int().positive(),
-	alt: z.string().trim().min(1).max(255),
+	alt: z.string().trim().max(255),
 });
 
-// POST /api/admin-gallery — upload a photo (multipart/form-data: `file`, `alt`).
+// POST /api/admin-gallery — upload a photo (multipart/form-data: `file`, optional `alt`).
 const handleUpload = async (req: Request): Promise<Response> => {
 	let form: FormData;
 	try {
@@ -34,7 +34,6 @@ const handleUpload = async (req: Request): Promise<Response> => {
 	const file = form.get("file");
 	const alt = form.get("alt");
 	if (!(file instanceof File)) return error("A file is required");
-	if (typeof alt !== "string" || alt.trim().length === 0) return error("A caption is required");
 	if (!ALLOWED_TYPES.has(file.type)) return error("Unsupported image type");
 	if (file.size > MAX_BYTES) return error("Image is too large (max 10MB)");
 
@@ -50,9 +49,15 @@ const handleUpload = async (req: Request): Promise<Response> => {
 		return error("Could not read image dimensions");
 	}
 
+	const trimmedAlt = typeof alt === "string" ? alt.trim() : "";
 	const blobKey = randomUUID();
 	await putPhotoBlob(blobKey, data, file.type);
-	const photo = await insertGalleryPhoto({ blobKey, alt: alt.trim(), width, height });
+	const photo = await insertGalleryPhoto({
+		blobKey,
+		alt: trimmedAlt.length > 0 ? trimmedAlt : null,
+		width,
+		height,
+	});
 	return json({ photo }, 201);
 };
 
@@ -71,31 +76,24 @@ const handleDelete = async (req: Request): Promise<Response> => {
 
 // PATCH /api/admin-gallery — update a photo's caption: { id, alt }
 const handleUpdate = async (req: Request): Promise<Response> => {
-	let body: unknown;
-	try {
-		body = await req.json();
-	} catch {
-		return error("Invalid JSON body");
-	}
+	const parsedBody = await parseJsonBody(req);
+	if (!parsedBody.ok) return parsedBody.response;
 
-	const parsed = updateSchema.safeParse(body);
+	const parsed = updateSchema.safeParse(parsedBody.body);
 	if (!parsed.success) return json({ error: "Invalid update", issues: parsed.error.issues }, 400);
 
-	const photo = await updateGalleryPhotoAlt(parsed.data.id, parsed.data.alt);
+	const alt = parsed.data.alt.length > 0 ? parsed.data.alt : null;
+	const photo = await updateGalleryPhotoAlt(parsed.data.id, alt);
 	if (!photo) return error("Photo not found", 404);
 	return json({ photo });
 };
 
 // PUT /api/admin-gallery — reorder photos: { order: [id, id, ...] } front-to-back
 const handleReorder = async (req: Request): Promise<Response> => {
-	let body: unknown;
-	try {
-		body = await req.json();
-	} catch {
-		return error("Invalid JSON body");
-	}
+	const parsedBody = await parseJsonBody(req);
+	if (!parsedBody.ok) return parsedBody.response;
 
-	const parsed = reorderSchema.safeParse(body);
+	const parsed = reorderSchema.safeParse(parsedBody.body);
 	if (!parsed.success) return json({ error: "Invalid order", issues: parsed.error.issues }, 400);
 
 	await reorderGalleryPhotos(parsed.data.order);

@@ -1,0 +1,1 @@
+ALTER TABLE "gallery_photos" ALTER COLUMN "alt" DROP NOT NULL;

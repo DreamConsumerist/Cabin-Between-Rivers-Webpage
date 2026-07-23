@@ -288,3 +288,16 @@ version incompatibility, since this was tried on Node 24).
 
 Next up: **Phase 5 — iCal sync** (the only remaining phase from the original plan), then Phase 7
 (go live).
+
+---
+
+## Known issues / TODO
+
+- **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
+  If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as
+  its Stripe payment completes, and someone else books those same dates first, the webhook's
+  confirm-update hits the DB's overlap constraint and can't go through. The guest has been charged
+  with no confirmed reservation. Right now this only logs a `CRITICAL` line to the function logs —
+  there's no admin-facing alert or automatic refund. Needs a real reconciliation path (flag in
+  `/admin`, email alert, or similar) before this matters at scale; low priority until there's enough
+  traffic for the race to actually happen.

@@ -2,64 +2,77 @@
 
 Reservation website for a single Airbnb listing, hosted on Netlify.
 
-## Goals
+## What's here
 
-1. **Book a reservation** directly on the site.
-2. **iCal sync** with Airbnb and Vrbo to prevent double-booking (import their `.ics`
-   feeds, export our own).
-3. **Process payments** through Stripe.
-4. **Store data** in a database provisioned within the same Netlify deployment
-   (Neon Postgres via `netlify db`, accessed with Drizzle ORM).
+- **Booking** — a 3-step wizard (calendar → guest details → embedded Stripe checkout) with
+  server-enforced holds and a DB-level overlap constraint that makes double-booking impossible.
+- **Payments** — Stripe embedded Checkout, confirmed via a signature-verified, idempotent webhook
+  (never the browser redirect).
+- **Admin panel** (`/admin`, password-gated) — manage the About-page photo gallery (upload, caption,
+  reorder, delete) and pricing/min-nights settings without a redeploy.
+- **Database** — Postgres (Netlify DB / Neon) via Drizzle ORM, migrated with Drizzle Kit and
+  Netlify's migration tracker.
+
+Not yet built: iCal import/export sync with Airbnb and Vrbo (the one remaining phase from the
+original plan — see `SETUP.md`).
 
 ## Stack
 
 - **Vite + React 19 + TypeScript**
 - **TanStack Router** — file-based routing (`src/routes/`)
-- **TanStack Query** — server-state / data fetching
+- **TanStack Query** — server-state / data fetching (shared `QueryClient` in `src/queryClient.ts`)
+- **Netlify Functions** (`netlify/functions/`) — the API, deployed alongside the frontend
+- **Postgres + Drizzle ORM** (`db/`) — schema and migrations
+- **Stripe** — embedded Checkout + webhook
+- **Netlify Blobs** — gallery photo storage
 - **Tailwind CSS 4**
 - **react-hook-form + zod** — forms and validation
-- **zustand** — client state
 - **dayjs** — date handling
 - **Vitest + Playwright** — unit and e2e testing
 
 ## Getting started
 
+See `SETUP.md` for the full first-time setup (Netlify account, database, Stripe keys, admin
+credentials). Once set up:
+
 ```bash
 pnpm install
 pnpm run setup   # installs Playwright browsers
-pnpm run dev
+netlify dev       # serves the app + functions on http://localhost:8888
 ```
 
 ## Scripts
 
 | Script | Purpose |
 | --- | --- |
-| `dev` | Start the Vite dev server |
+| `dev` | Start the Vite dev server (frontend only — use `netlify dev` for functions + DB) |
 | `build` | Type-check and build for production |
 | `preview` | Preview the production build |
+| `typecheck:server` | Type-check the Netlify Functions (`tsconfig.server.json`) |
 | `lint` / `lint:fix` | ESLint |
 | `format` | Prettier |
 | `test` | Unit (Vitest) + e2e (Playwright) |
+| `test:unit` / `test:unit:coverage` | Vitest only |
+| `test:e2e` / `test:e2e:report` | Playwright only |
+| `db:generate` | Generate a Drizzle migration from `db/schema.ts` changes |
+| `db:studio` | Browse the database in Drizzle Studio |
 
 ## Project structure
 
 ```
+db/               Drizzle schema (db/schema.ts) and DB client
+lib/              Server-side logic shared by functions (availability, booking, gallery,
+                  Stripe, admin auth, HTTP helpers)
+netlify/
+  functions/      API endpoints (booking, payments, admin, gallery, cron)
+  database/       Generated Drizzle migrations
+public/           Static files served as-is (e.g. terms.html)
 src/
-  common/       shared types and utilities
-  components/   ui / forms / layout components
-  features/     feature modules (booking, payments, ...)
-  hooks/        shared React hooks
-  pages/        page components
-  routes/       TanStack Router route definitions
-  store/        zustand stores
-  styles/       Tailwind entry
-e2e/            Playwright tests
+  common/         Shared types and utilities
+  components/     ui / forms / layout components
+  features/       Feature modules (booking, admin, gallery) — API clients + React Query hooks
+  pages/          Page components
+  routes/         TanStack Router route definitions
+  styles/         Tailwind entry
+e2e/              Playwright tests
 ```
-
-## Roadmap (not yet implemented)
-
-- [ ] `netlify.toml` + Netlify Functions directory
-- [ ] Neon Postgres + Drizzle schema (reservations, availability)
-- [ ] iCal import/export functions
-- [ ] Stripe payment-intent + webhook functions
-- [ ] Booking UI (availability calendar + reservation form)
