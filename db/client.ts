@@ -1,10 +1,7 @@
-import { neon } from "@netlify/neon";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/netlify-db";
 import * as schema from "./schema";
 
-// `neon()` reads NETLIFY_DATABASE_URL automatically (the pooled connection,
-// correct for serverless functions). The HTTP driver is ideal for the short,
-// one-shot queries a function makes.
-const sql = neon();
-
-export const db = drizzle({ client: sql, schema });
+// Netlify's Drizzle adapter reads NETLIFY_DATABASE_URL automatically and picks
+// the right Postgres driver for the runtime: the Neon HTTP driver inside
+// serverless functions, and node-postgres for the local `netlify dev` database.
+export const db = drizzle({ schema });

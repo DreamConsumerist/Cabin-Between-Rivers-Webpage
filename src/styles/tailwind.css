@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+@theme {
+	/* Forest green (#76AC29) — primary actions, links, selected dates. */
+	--color-brand-50: #f5f8f1;
+	--color-brand-100: #eaf1df;
+	--color-brand-200: #d5e7bb;
+	--color-brand-300: #bcdd8d;
+	--color-brand-400: #9fd255;
+	--color-brand-500: #8dcc33;
+	--color-brand-600: #76ac29;
+	--color-brand-700: #5c871f;
+	--color-brand-800: #4c6e1a;
+	--color-brand-900: #3d5817;
+}
