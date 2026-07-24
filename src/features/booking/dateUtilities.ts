@@ -68,3 +68,25 @@ export const computeEstimatedTotalCents = (
 
 export const formatCents = (cents: number): string =>
 	(cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+// Compact form for tight spaces (calendar day cells): drops cents when the
+// rate is a whole dollar amount, which nightly rates always are in practice.
+export const formatCentsCompact = (cents: number): string =>
+	cents % 100 === 0 ? `$${cents / 100}` : formatCents(cents);
+
+export type NightlyLineItem = { date: Dayjs; rateCents: number };
+
+export const buildNightlyBreakdown = (
+	checkIn: Dayjs,
+	checkOut: Dayjs,
+	pricing: Pricing,
+	overrides: Array<PriceOverride>
+): Array<NightlyLineItem> => {
+	const nights: Array<NightlyLineItem> = [];
+	let night = checkIn;
+	while (night.isBefore(checkOut, "day")) {
+		nights.push({ date: night, rateCents: nightlyRateForDate(night, pricing.nightlyRate, overrides) });
+		night = night.add(1, "day");
+	}
+	return nights;
+};

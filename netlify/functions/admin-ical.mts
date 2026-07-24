@@ -2,7 +2,11 @@ import type { Context } from "@netlify/functions";
 import { z } from "zod";
 import { error, json, parseJsonBody } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
-import { getSettings, updateIcalUrls } from "../../lib/availability";
+import {
+	getOrCreateExportToken,
+	getSettings,
+	updateIcalUrls,
+} from "../../lib/availability";
 import { syncCalendars, type IcalSyncSummary } from "../../lib/icalSync";
 
 const updateSchema = z.object({
@@ -24,10 +28,13 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
 	if (req.method === "GET") {
 		const settings = await getSettings();
+		const exportToken = await getOrCreateExportToken();
 		return json({
 			airbnbIcalUrl: settings?.airbnbIcalUrl ?? "",
 			vrboIcalUrl: settings?.vrboIcalUrl ?? "",
 			notificationEmails: settings?.notificationEmails ?? "",
+			exportToken,
+			exportUrl: `${new URL(req.url).origin}/api/calendar-export?token=${exportToken}`,
 		});
 	}
 
@@ -36,7 +43,11 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		if (!parsedBody.ok) return parsedBody.response;
 
 		const parsed = updateSchema.safeParse(parsedBody.body);
-		if (!parsed.success) return json({ error: "Invalid iCal settings", issues: parsed.error.issues }, 400);
+		if (!parsed.success)
+			return json(
+				{ error: "Invalid iCal settings", issues: parsed.error.issues },
+				400
+			);
 
 		const settings = await updateIcalUrls({
 			airbnbIcalUrl: parsed.data.airbnbIcalUrl || null,

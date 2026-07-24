@@ -11,8 +11,10 @@ const getEnv = (name: string): string => {
 };
 
 // Fixed-length digest comparison so neither branch length nor early-exit
-// timing leaks how much of the candidate matched.
-const constantTimeEquals = (a: string, b: string): boolean => {
+// timing leaks how much of the candidate matched. Exported for
+// netlify/functions/calendar-export.mts, which gates a public endpoint on a
+// token rather than a session cookie but needs the same timing-safe check.
+export const constantTimeEquals = (a: string, b: string): boolean => {
 	const digestA = createHmac("sha256", "compare").update(a).digest();
 	const digestB = createHmac("sha256", "compare").update(b).digest();
 	return timingSafeEqual(digestA, digestB);
@@ -22,7 +24,9 @@ export const verifyAdminPassword = (candidate: string): boolean =>
 	constantTimeEquals(candidate, getEnv("ADMIN_PASSWORD"));
 
 const sign = (payload: string): string =>
-	createHmac("sha256", getEnv("ADMIN_SESSION_SECRET")).update(payload).digest("hex");
+	createHmac("sha256", getEnv("ADMIN_SESSION_SECRET"))
+		.update(payload)
+		.digest("hex");
 
 const createSessionToken = (): string => {
 	const expiresAt = Date.now() + SESSION_TTL_MS;

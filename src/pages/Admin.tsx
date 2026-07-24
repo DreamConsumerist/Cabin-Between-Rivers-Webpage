@@ -2,20 +2,22 @@ import { useState } from "react";
 import type { FunctionComponent } from "../common/types";
 import { Button } from "../components/ui/Button";
 import { BookingsList } from "../features/admin/BookingsList";
+import { ConflictsList } from "../features/admin/ConflictsList";
 import { GalleryManager } from "../features/admin/GalleryManager";
 import { IcalForm } from "../features/admin/IcalForm";
 import { LoginForm } from "../features/admin/LoginForm";
 import { SettingsForm } from "../features/admin/SettingsForm";
 import { TermsForm } from "../features/admin/TermsForm";
-import { useAdminLogout, useAdminMe } from "../features/admin/hooks";
+import { useAdminLogout, useAdminMe, useConflicts } from "../features/admin/hooks";
 
-type Tab = "bookings" | "gallery" | "pricing" | "ical" | "terms";
+type Tab = "bookings" | "gallery" | "pricing" | "ical" | "conflicts" | "terms";
 
 const TAB_LABEL: Record<Tab, string> = {
 	bookings: "Bookings",
 	gallery: "Gallery",
 	pricing: "Pricing",
 	ical: "iCal",
+	conflicts: "Conflicts",
 	terms: "Terms",
 };
 
@@ -23,6 +25,10 @@ export const Admin = (): FunctionComponent => {
 	const { data, isPending } = useAdminMe();
 	const logout = useAdminLogout();
 	const [tab, setTab] = useState<Tab>("bookings");
+	// Shares its query key with ConflictsList's own useConflicts(false) call, so
+	// this doesn't duplicate the fetch once that tab is opened.
+	const openConflicts = useConflicts(false);
+	const openConflictCount = openConflicts.data?.conflicts.length ?? 0;
 
 	if (isPending) {
 		return (
@@ -60,7 +66,7 @@ export const Admin = (): FunctionComponent => {
 				</div>
 
 				<div className="flex gap-2 border-b border-neutral-200">
-					{(["bookings", "gallery", "pricing", "ical", "terms"] as const).map((t) => (
+					{(["bookings", "gallery", "pricing", "ical", "conflicts", "terms"] as const).map((t) => (
 						<button
 							key={t}
 							type="button"
@@ -74,6 +80,11 @@ export const Admin = (): FunctionComponent => {
 							}}
 						>
 							{TAB_LABEL[t]}
+							{t === "conflicts" && openConflictCount > 0 && (
+								<span className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] text-white">
+									{openConflictCount}
+								</span>
+							)}
 						</button>
 					))}
 				</div>
@@ -82,6 +93,7 @@ export const Admin = (): FunctionComponent => {
 				{tab === "gallery" && <GalleryManager />}
 				{tab === "pricing" && <SettingsForm />}
 				{tab === "ical" && <IcalForm />}
+				{tab === "conflicts" && <ConflictsList />}
 				{tab === "terms" && <TermsForm />}
 			</div>
 		</main>

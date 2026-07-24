@@ -6,6 +6,7 @@ import {
 	date,
 	timestamp,
 	uniqueIndex,
+	index,
 } from "drizzle-orm/pg-core";
 
 // All money is stored as integer CENTS (matches Stripe's smallest-currency-unit
@@ -68,6 +69,38 @@ export const externalBlocks = pgTable(
 	]
 );
 
+// Persisted record of a detected double-booking conflict (an external iCal
+// block overlapping a live reservation, or a Stripe payment confirming after
+// the dates were rebooked — see lib/icalSync.ts and
+// netlify/functions/stripe-webhook.mts, both of which call
+// lib/conflicts.ts's flagDoubleBooking). This is the "what's still open"
+// system of record the email alert (lib/mailer.ts) alone can't answer.
+// Resolving a row here never touches Stripe or the reservation itself on its
+// own — see netlify/functions/admin-cancel-reservation.mts for the separate
+// action that actually cancels/refunds, which the admin UI chains after a
+// successful cancel to auto-resolve the row.
+export const DOUBLE_BOOKING_SOURCES = ["airbnb-sync", "vrbo-sync", "stripe-webhook"] as const;
+export type DoubleBookingSource = (typeof DOUBLE_BOOKING_SOURCES)[number];
+
+export const doubleBookingConflicts = pgTable(
+	"double_booking_conflicts",
+	{
+		id: integer().primaryKey().generatedAlwaysAsIdentity(),
+		source: varchar({ length: 20 }).$type<DoubleBookingSource>().notNull(),
+		checkIn: date("check_in").notNull(),
+		checkOut: date("check_out").notNull(),
+		detail: text().notNull(),
+		// Reservations are never hard-deleted (only status-flipped — see the
+		// reservations table above), so default NO ACTION is fine here. First
+		// .references() in this schema — no other on-delete convention exists.
+		reservationId: integer("reservation_id").references(() => reservations.id),
+		resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+		resolutionNote: text("resolution_note"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [index("double_booking_conflicts_resolved_at_idx").on(table.resolvedAt)]
+);
+
 // Single-row configuration, editable without a redeploy.
 export const settings = pgTable("settings", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
@@ -88,6 +121,10 @@ export const settings = pgTable("settings", {
 	// until an admin saves their own copy — lib/terms.ts's DEFAULT_TERMS_CONTENT
 	// is served in the meantime.
 	termsContent: text("terms_content"),
+	// Secret token gating GET /api/calendar-export (see netlify/functions/
+	// calendar-export.mts). Null until an admin first opens the iCal tab
+	// (lazy-generated) or explicitly regenerates it.
+	exportToken: varchar("export_token", { length: 64 }),
 });
 
 // Seasonal price overrides, admin-managed from /admin. `nightlyRate` (cents)

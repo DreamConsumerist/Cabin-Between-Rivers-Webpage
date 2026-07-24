@@ -4,8 +4,8 @@ import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/client";
 import { processedWebhookEvents, reservations } from "../../db/schema";
 import { getReservationById, isOverlapError } from "../../lib/availability";
+import { flagDoubleBooking } from "../../lib/conflicts";
 import { error, json } from "../../lib/http";
-import { notifyDoubleBooking } from "../../lib/mailer";
 import { getStripe, getWebhookSecret } from "../../lib/stripe";
 
 // POST /.netlify/functions/stripe-webhook (not proxied through /api/* — keep the
@@ -84,11 +84,12 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 						e
 					);
 					const reservation = await getReservationById(reservationId);
-					await notifyDoubleBooking({
+					await flagDoubleBooking({
 						source: "stripe-webhook",
 						checkIn: reservation?.checkIn ?? "unknown",
 						checkOut: reservation?.checkOut ?? "unknown",
 						detail: `Stripe payment succeeded for reservation #${reservationId} (event ${event.id}) but the dates were rebooked before the webhook landed. Needs manual refund/reconciliation.`,
+						reservationId,
 					});
 				} else {
 					console.error(

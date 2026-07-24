@@ -9,6 +9,7 @@ import { HoldTimer } from "../features/booking/HoldTimer";
 import { TermsStep } from "../features/booking/TermsStep";
 import { cancelReservation, type CreateBookingResult } from "../features/booking/api";
 import {
+	buildNightlyBreakdown,
 	computeEstimatedTotalCents,
 	formatCents,
 	toIsoDate,
@@ -263,6 +264,8 @@ export const Booking = (): FunctionComponent => {
 						{availability.data && (
 							<Calendar
 								blocked={availability.data.blocked}
+								priceOverrides={availability.data.priceOverrides}
+								pricing={availability.data.pricing}
 								selection={selection}
 								onChange={setSelection}
 							/>
@@ -272,26 +275,49 @@ export const Booking = (): FunctionComponent => {
 								{checkIn.format("MMM D")} – {checkOut.format("MMM D, YYYY")} ·{" "}
 								{nights} night
 								{nights === 1 ? "" : "s"}
-								{pricing && !belowMinNights && (
-									<>
-										{" "}
-										· est.{" "}
-										{formatCents(
-										computeEstimatedTotalCents(
-											checkIn,
-											checkOut,
-											pricing,
-											availability.data?.priceOverrides ?? []
-										)
-									)}
-									</>
-								)}
 							</p>
 						)}
 						{belowMinNights && pricing && (
 							<p className="text-sm text-red-600">
 								Minimum stay is {pricing.minNights} nights.
 							</p>
+						)}
+						{checkIn && checkOut && pricing && !belowMinNights && (
+							<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
+								<ul className="flex flex-col gap-1">
+									{buildNightlyBreakdown(
+										checkIn,
+										checkOut,
+										pricing,
+										availability.data?.priceOverrides ?? []
+									).map(({ date, rateCents }) => (
+										<li
+											key={date.format("YYYY-MM-DD")}
+											className="flex justify-between text-neutral-600"
+										>
+											<span>{date.format("ddd, MMM D")}</span>
+											<span>{formatCents(rateCents)}</span>
+										</li>
+									))}
+									<li className="flex justify-between text-neutral-600">
+										<span>Cleaning fee</span>
+										<span>{formatCents(pricing.cleaningFee)}</span>
+									</li>
+								</ul>
+								<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
+									<span>Total</span>
+									<span>
+										{formatCents(
+											computeEstimatedTotalCents(
+												checkIn,
+												checkOut,
+												pricing,
+												availability.data?.priceOverrides ?? []
+											)
+										)}
+									</span>
+								</div>
+							</div>
 						)}
 						<Button
 							disabled={!canContinueFromDates}

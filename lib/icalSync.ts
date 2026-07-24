@@ -3,7 +3,7 @@ import { and, eq, notInArray } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks } from "../db/schema";
 import { getActiveReservationsOverlapping, getSettings } from "./availability";
-import { notifyDoubleBooking } from "./mailer";
+import { flagDoubleBooking } from "./conflicts";
 
 export type IcalSource = "airbnb" | "vrbo";
 
@@ -158,14 +158,22 @@ export const syncSource = async (source: IcalSource, url: string): Promise<Sourc
 		const overlapping = await getActiveReservationsOverlapping(block.checkIn, block.checkOut);
 		if (overlapping.length > 0) {
 			conflicts++;
-			await notifyDoubleBooking({
-				source: source === "airbnb" ? "airbnb-sync" : "vrbo-sync",
-				checkIn: block.checkIn,
-				checkOut: block.checkOut,
-				detail: `External ${source} block (uid ${block.uid}) overlaps reservation(s) #${overlapping
-					.map((r) => r.id)
-					.join(", #")}.`,
-			});
+			const detail = `External ${source} block (uid ${block.uid}) overlaps reservation(s) #${overlapping
+				.map((r) => r.id)
+				.join(", #")}.`;
+			// One conflict row per overlapping reservation (not per block) so each
+			// is independently resolvable in the admin Conflicts tab — see
+			// lib/conflicts.ts. A block overlapping more than one reservation
+			// sends one email per reservation, each with this same detail text.
+			for (const reservation of overlapping) {
+				await flagDoubleBooking({
+					source: source === "airbnb" ? "airbnb-sync" : "vrbo-sync",
+					checkIn: block.checkIn,
+					checkOut: block.checkOut,
+					detail,
+					reservationId: reservation.id,
+				});
+			}
 		}
 	}
 

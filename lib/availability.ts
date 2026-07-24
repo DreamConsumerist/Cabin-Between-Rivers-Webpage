@@ -1,8 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
 import { isExclusionViolation } from "./dbErrors";
+import type { ExportableReservation } from "./icalExport";
 
 export type BlockedRange = {
 	checkIn: string;
@@ -15,7 +17,10 @@ export type BlockedRange = {
 const activeReservation = () =>
 	or(
 		eq(reservations.status, "confirmed"),
-		and(eq(reservations.status, "pending"), gt(reservations.holdExpiresAt, sql`now()`))
+		and(
+			eq(reservations.status, "pending"),
+			gt(reservations.holdExpiresAt, sql`now()`)
+		)
 	);
 
 // SQL predicate: does [checkIn, checkOut) overlap the given row's date range?
@@ -86,7 +91,27 @@ export const hasExternalBlockOverlap = async (
 	return rows.length > 0;
 };
 
-export type ActiveReservationOverlap = { id: number; checkIn: string; checkOut: string };
+// Site-direct reservations that block dates (see activeReservation()) — the
+// data source for the public iCal export feed (lib/icalExport.ts). Deliberately
+// selects only id/checkIn/checkOut, never guest name/email/phone.
+export const getExportableReservations = async (): Promise<
+	ExportableReservation[]
+> =>
+	db
+		.select({
+			id: reservations.id,
+			checkIn: reservations.checkIn,
+			checkOut: reservations.checkOut,
+		})
+		.from(reservations)
+		.where(activeReservation())
+		.orderBy(reservations.checkIn);
+
+export type ActiveReservationOverlap = {
+	id: number;
+	checkIn: string;
+	checkOut: string;
+};
 
 // Active site reservations (confirmed, or pending with a live hold) that
 // overlap [checkIn, checkOut) — used by the iCal sync (lib/icalSync.ts) and
@@ -161,6 +186,36 @@ export const updateIcalUrls = async (update: IcalUpdate) => {
 	return rows[0]!;
 };
 
+const setExportToken = async (token: string): Promise<string> => {
+	const existing = await getSettings();
+	if (existing) {
+		await db
+			.update(settings)
+			.set({ exportToken: token })
+			.where(eq(settings.id, existing.id));
+	} else {
+		await db.insert(settings).values({ exportToken: token });
+	}
+	return token;
+};
+
+// Lazy-generates the public export feed's secret token on first read — called
+// from the admin-gated GET /api/admin-ical so the admin sees a working feed
+// URL immediately, with no separate "generate" step. The public export
+// endpoint (netlify/functions/calendar-export.mts) must never call this —
+// only plain getSettings() — so an unauthenticated request can't trigger
+// token creation as a side effect.
+export const getOrCreateExportToken = async (): Promise<string> => {
+	const existing = await getSettings();
+	if (existing?.exportToken) return existing.exportToken;
+	return setExportToken(randomBytes(24).toString("hex"));
+};
+
+// Explicit admin action (netlify/functions/admin-ical-export-token.mts) that
+// invalidates the old export feed URL by minting a new token.
+export const regenerateExportToken = async (): Promise<string> =>
+	setExportToken(randomBytes(24).toString("hex"));
+
 // Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
 // `termsContent` — kept separate so the Terms editor doesn't need to resend
 // pricing/iCal fields (and vice versa) just to save one of the two.
@@ -206,7 +261,9 @@ export const isOverlapError = (e: unknown): boolean =>
 // dates) so those dates free up immediately instead of waiting out the full
 // hold window. Only ever transitions pending -> cancelled; already-confirmed
 // reservations are left untouched by this WHERE clause.
-export const cancelPendingReservation = async (id: number): Promise<boolean> => {
+export const cancelPendingReservation = async (
+	id: number
+): Promise<boolean> => {
 	const rows = await db
 		.update(reservations)
 		.set({ status: "cancelled" })
@@ -215,13 +272,39 @@ export const cancelPendingReservation = async (id: number): Promise<boolean> => 
 	return rows.length > 0;
 };
 
+// Admin-authority cancellation: unlike cancelPendingReservation above (guest-
+// facing, pending-only), this also works on confirmed reservations — used by
+// the double-booking reconciliation tool
+// (netlify/functions/admin-cancel-reservation.mts). Does NOT touch Stripe;
+// the caller issues a refund first when a payment was charged, before
+// calling this, so a reservation is never freed without also being refunded.
+export const adminCancelReservation = async (id: number) => {
+	const rows = await db
+		.update(reservations)
+		.set({ status: "cancelled" })
+		.where(
+			and(
+				eq(reservations.id, id),
+				or(
+					eq(reservations.status, "confirmed"),
+					eq(reservations.status, "pending")
+				)
+			)
+		)
+		.returning();
+	return rows[0] ?? null;
+};
+
 // Records the guest's uploaded photo ID (required before payment — see
 // TermsStep.tsx). Gated on status = 'pending', same reasoning as
 // cancelPendingReservation: a guest shouldn't be able to attach a new upload
 // to a reservation that's already confirmed/expired/cancelled — including one
 // that isn't theirs, since reservationId is the only credential this endpoint
 // checks.
-export const setReservationIdPhoto = async (id: number, blobKey: string): Promise<boolean> => {
+export const setReservationIdPhoto = async (
+	id: number,
+	blobKey: string
+): Promise<boolean> => {
 	const rows = await db
 		.update(reservations)
 		.set({ idPhotoBlobKey: blobKey })
