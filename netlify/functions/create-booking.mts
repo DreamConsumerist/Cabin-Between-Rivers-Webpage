@@ -1,7 +1,7 @@
 import type { Context } from "@netlify/functions";
 import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
 import {
-	computeTotalCents,
+	computeTotalCentsWithOverrides,
 	createBookingSchema,
 	nightsBetween,
 } from "../../lib/booking";
@@ -12,6 +12,7 @@ import {
 	insertPendingReservation,
 	isOverlapError,
 } from "../../lib/availability";
+import { getPriceOverridesForRange } from "../../lib/priceOverrides";
 
 // POST /api/create-booking
 // Validates the request, prices it server-side, and creates a PENDING hold.
@@ -48,10 +49,13 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			return error("Those dates are unavailable", 409);
 		}
 
-		const amountTotal = computeTotalCents(
-			nights,
+		const overrides = await getPriceOverridesForRange(input.checkIn, input.checkOut);
+		const amountTotal = computeTotalCentsWithOverrides(
+			input.checkIn,
+			input.checkOut,
 			config.nightlyRate,
-			config.cleaningFee
+			config.cleaningFee,
+			overrides
 		);
 
 		const reservation = await insertPendingReservation({ ...input, amountTotal });

@@ -76,10 +76,35 @@ export const settings = pgTable("settings", {
 	minNights: integer("min_nights").notNull().default(1),
 	airbnbIcalUrl: text("airbnb_ical_url"),
 	vrboIcalUrl: text("vrbo_ical_url"),
+	// Comma-separated recipient list for the double-booking warning email (see
+	// lib/mailer.ts), parsed into a string[] at the application layer — same
+	// single-text-field convention as termsContent below, not a Postgres
+	// array/jsonb column. Admin-configurable here (not an env var) for the
+	// same reason as the two URLs above, and saved from the same iCal admin
+	// tab since it's triggered by that sync as well as by a Stripe webhook
+	// payment-race conflict (see netlify/functions/stripe-webhook.mts).
+	notificationEmails: text("notification_emails"),
 	// Plain text, admin-edited (see netlify/functions/admin-terms.mts). Null
 	// until an admin saves their own copy — lib/terms.ts's DEFAULT_TERMS_CONTENT
 	// is served in the meantime.
 	termsContent: text("terms_content"),
+});
+
+// Seasonal price overrides, admin-managed from /admin. `nightlyRate` (cents)
+// applies to every night in [checkIn, checkOut) instead of settings.nightlyRate.
+// A GiST EXCLUDE constraint (added by hand in a follow-up migration, since
+// drizzle-kit can't express EXCLUDE — see reservations_no_overlap for the same
+// pattern) rejects overlapping ranges, so at most one override ever covers a
+// given night.
+export const priceOverrides = pgTable("price_overrides", {
+	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	checkIn: date("check_in").notNull(),
+	checkOut: date("check_out").notNull(),
+	nightlyRate: integer("nightly_rate").notNull(),
+	label: varchar({ length: 255 }),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
 });
 
 // Stripe webhook idempotency: a processed event.id is recorded so retried

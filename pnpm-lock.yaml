@@ -35,6 +35,9 @@ importers:
       image-size:
         specifier: ^2.0.2
         version: 2.0.2
+      node-ical:
+        specifier: ^0.27.1
+        version: 0.27.1
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -3172,6 +3175,10 @@ packages:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
 
+  node-ical@0.27.1:
+    resolution: {integrity: sha512-5fiKuh/h2HrWKzFt20LtRQdjtjdGfijGfDnCfdAEc++SFX9gA6sa7xwj7/BJmRfWtW/NJWBenN4tOJhg0vM3pg==}
+    engines: {node: '>=22'}
+
   node-releases@2.0.48:
     resolution: {integrity: sha512-1uz8041X6LoI6ZSdZacM9lVY28vuzDlSKitnpbSNK0RfKoIJkX29NBPVEFXhnuSuEOA9Ww0xnPJ+ILWbGAv8DA==}
     engines: {node: '>=18'}
@@ -3581,6 +3588,9 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+  rrule-temporal@2.0.1:
+    resolution: {integrity: sha512-pUSHCgOho0yNYMQRu7P6TSqqaj1GjYdSXlzo4zRoO7dVvY3Is7a2QMKYzSLJrMU/OF0tRB/9NzK1YLjQ8dmkug==}
+
   run-parallel@1.2.0:
     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
 
@@ -3825,6 +3835,15 @@ packages:
 
   teex@1.0.1:
     resolution: {integrity: sha512-eYE6iEI62Ni1H8oIa7KlDU6uQBtqr4Eajni3wX7rpfXD8ysFx8z0+dri+KWEPWpBsxXfxu58x/0jvTVT1ekOSg==}
+
+  temporal-polyfill@1.0.1:
+    resolution: {integrity: sha512-N2SoI9olnW7BUsU8RosDphZQl9s+WJ8O7PoJMFCr/e5/1rFkVI4GNOWaSeySG+UoP04foPYsnLWbJmbXOiShZg==}
+
+  temporal-spec@1.0.0:
+    resolution: {integrity: sha512-00Ahj1e1ifaERTMOIIGpOCdOo9IEk2m6GGSMedsn9a2SIsGLdOTbmME1Htv6IM82b6VHrzSUTIVc7YHy6hdhFQ==}
+
+  temporal-utils@1.0.1:
+    resolution: {integrity: sha512-HAixuesxFQIUaQk3ptX2jhfO/FsOkgVkDDMawvp6n/fkB1q6BKfs3lURw9I+pK/2e2e/q/vrLrxmeqauBoyGMQ==}
 
   text-decoder@1.2.7:
     resolution: {integrity: sha512-vlLytXkeP4xvEq2otHeJfSQIRyWxo/oZGEbXrtEEF9Hnmrdly59sUbzZ/QgyWuLYHctCHxFF4tRQZNQ9k60ExQ==}
@@ -7359,6 +7378,11 @@ snapshots:
 
   node-gyp-build@4.8.4: {}
 
+  node-ical@0.27.1:
+    dependencies:
+      rrule-temporal: 2.0.1
+      temporal-polyfill: 1.0.1
+
   node-releases@2.0.48: {}
 
   node-source-walk@7.0.2:
@@ -7797,6 +7821,10 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.0.3
       '@rolldown/binding-win32-x64-msvc': 1.0.3
 
+  rrule-temporal@2.0.1:
+    dependencies:
+      temporal-spec: 1.0.0
+
   run-parallel@1.2.0:
     dependencies:
       queue-microtask: 1.2.3
@@ -8085,6 +8113,15 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
+
+  temporal-polyfill@1.0.1:
+    dependencies:
+      temporal-spec: 1.0.0
+      temporal-utils: 1.0.1
+
+  temporal-spec@1.0.0: {}
+
+  temporal-utils@1.0.1: {}
 
   text-decoder@1.2.7:
     dependencies:

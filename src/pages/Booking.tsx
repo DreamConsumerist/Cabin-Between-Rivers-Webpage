@@ -276,7 +276,14 @@ export const Booking = (): FunctionComponent => {
 									<>
 										{" "}
 										· est.{" "}
-										{formatCents(computeEstimatedTotalCents(nights, pricing))}
+										{formatCents(
+										computeEstimatedTotalCents(
+											checkIn,
+											checkOut,
+											pricing,
+											availability.data?.priceOverrides ?? []
+										)
+									)}
 									</>
 								)}
 							</p>

@@ -2,6 +2,7 @@ import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
+import { isExclusionViolation } from "./dbErrors";
 
 export type BlockedRange = {
 	checkIn: string;
@@ -18,7 +19,7 @@ const activeReservation = () =>
 	);
 
 // SQL predicate: does [checkIn, checkOut) overlap the given row's date range?
-const overlaps = (
+export const overlaps = (
 	col: { checkIn: unknown; checkOut: unknown },
 	checkIn: string,
 	checkOut: string
@@ -85,22 +86,45 @@ export const hasExternalBlockOverlap = async (
 	return rows.length > 0;
 };
 
+export type ActiveReservationOverlap = { id: number; checkIn: string; checkOut: string };
+
+// Active site reservations (confirmed, or pending with a live hold) that
+// overlap [checkIn, checkOut) — used by the iCal sync (lib/icalSync.ts) and
+// the Stripe webhook to detect a double-booking conflict: a newly-synced
+// external block, or a payment race, landing on dates the site already
+// considers taken.
+export const getActiveReservationsOverlapping = async (
+	checkIn: string,
+	checkOut: string
+): Promise<ActiveReservationOverlap[]> => {
+	return db
+		.select({
+			id: reservations.id,
+			checkIn: reservations.checkIn,
+			checkOut: reservations.checkOut,
+		})
+		.from(reservations)
+		.where(and(activeReservation(), overlaps(reservations, checkIn, checkOut)));
+};
+
 export const getSettings = async () => {
 	const rows = await db.select().from(settings).limit(1);
 	return rows[0] ?? null;
 };
 
-export type SettingsUpdate = {
+export type PricingUpdate = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
-	airbnbIcalUrl: string | null;
-	vrboIcalUrl: string | null;
 };
 
 // The settings table is always a single row (see db/schema.ts) — update it if
-// it exists, otherwise create it (e.g. before it's ever been seeded).
-export const upsertSettings = async (update: SettingsUpdate) => {
+// it exists, otherwise create it (e.g. before it's ever been seeded). Scoped
+// to just the pricing fields — see updateIcalUrls/updateTermsContent for the
+// same single-row-upsert shape scoped to their own fields, so the Pricing,
+// iCal, and Terms admin tabs never resend each other's fields just to save
+// their own.
+export const updatePricingSettings = async (update: PricingUpdate) => {
 	const existing = await getSettings();
 	if (existing) {
 		const rows = await db
@@ -114,7 +138,30 @@ export const upsertSettings = async (update: SettingsUpdate) => {
 	return rows[0]!;
 };
 
-// Same single-row-upsert shape as `upsertSettings`, but scoped to just
+export type IcalUpdate = {
+	airbnbIcalUrl: string | null;
+	vrboIcalUrl: string | null;
+	notificationEmails: string | null;
+};
+
+// Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
+// the Airbnb/Vrbo iCal URLs and the double-booking notification recipients
+// (see lib/mailer.ts) — they're saved together from the same admin iCal tab.
+export const updateIcalUrls = async (update: IcalUpdate) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set(update)
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+// Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
 // `termsContent` — kept separate so the Terms editor doesn't need to resend
 // pricing/iCal fields (and vice versa) just to save one of the two.
 export const updateTermsContent = async (termsContent: string) => {
@@ -150,31 +197,10 @@ export type NewReservation = {
 	amountTotal: number;
 };
 
-// Postgres exclusion-violation error code — thrown when the EXCLUDE constraint
-// rejects an overlapping reservation.
-export const EXCLUSION_VIOLATION = "23P01";
-
-const OVERLAP_CONSTRAINT = "reservations_no_overlap";
-
-// Detects the overlap-constraint violation across every shape it can arrive in:
-// node-postgres (local `netlify dev`) and Neon HTTP (production) expose `.code`
-// and `.constraint` differently, and Drizzle may wrap the driver error in
-// `.cause`. We walk the cause chain and also fall back to the message text.
-export const isOverlapError = (e: unknown): boolean => {
-	let current: unknown = e;
-	for (let depth = 0; depth < 6 && current != null; depth++) {
-		const err = current as {
-			code?: unknown;
-			constraint?: unknown;
-			cause?: unknown;
-		};
-		if (err.code === EXCLUSION_VIOLATION) return true;
-		if (err.constraint === OVERLAP_CONSTRAINT) return true;
-		current = err.cause;
-	}
-	const message = e instanceof Error ? e.message : String(e);
-	return message.includes(OVERLAP_CONSTRAINT) || /exclusion constraint/i.test(message);
-};
+// Detects the reservations_no_overlap EXCLUDE constraint violation. See
+// lib/dbErrors.ts for how driver error shapes are walked.
+export const isOverlapError = (e: unknown): boolean =>
+	isExclusionViolation(e, "reservations_no_overlap");
 
 // Lets a guest abandon their own still-pending hold (e.g. going back to change
 // dates) so those dates free up immediately instead of waiting out the full

@@ -254,7 +254,15 @@ out of `netlify.toml` and any tracked `.env`.
 - **Stripe (Phase 4 + 6):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and
   `VITE_STRIPE_PUBLISHABLE_KEY` — see the Phase 4 and Phase 6 sections above.
 - **iCal (Phase 5):** your Airbnb and Vrbo calendar export URLs (stored in the `settings` table,
-  not env vars), and you'll paste our exported `/calendar.ics` URL into Airbnb + Vrbo.
+  not env vars), and you'll paste our exported `/calendar.ics` URL into Airbnb + Vrbo. Sync runs
+  on save, on demand via "Sync now" in the iCal admin tab, and every 30 minutes via a scheduled
+  function (`netlify/functions/ical-sync.mts`).
+- **Email notifications (double-booking warnings):** `RESEND_API_KEY` (from resend.com) and
+  `NOTIFICATION_FROM_EMAIL` (a Resend-verified sending address). Fires when a synced Airbnb/Vrbo
+  block overlaps a reservation already active on the site, or when a Stripe payment confirms into
+  dates that were rebooked in the meantime. The recipient address(es) are admin-configurable from
+  the iCal tab in `/admin` (stored in the `settings` table, not an env var), same reasoning as the
+  iCal URLs above.
 - **Admin panel:** `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` — see "Admin panel" above.
 
 ---
@@ -357,18 +365,28 @@ Next up: **Phase 5 — iCal sync** (the only remaining phase from the original p
   (timestamp, and ideally a short reference/request id that shows up in the function logs too, so you
   can find the matching error without guessing).
 
-- **iCal import/export sync (Phase 5) isn't built yet** — the admin Settings tab already lets you
-  *enter* the Airbnb/Vrbo iCal URLs (`airbnbIcalUrl`/`vrboIcalUrl` on the `settings` table), but
-  nothing reads those feeds into `external_blocks` yet, and there's no exported `/calendar.ics` for
-  Airbnb/Vrbo to import back. This is the last remaining phase from the original plan (see "Where we
-  are" above) — without it, `hasExternalBlockOverlap` in `lib/availability.ts` always sees an empty
-  `external_blocks` table, so double-booking against Airbnb/Vrbo isn't actually prevented yet.
+- **iCal export isn't built yet** — the *import* half of Phase 5 is done: `lib/icalSync.ts` pulls
+  the Airbnb/Vrbo `.ics` URLs into `external_blocks` on save, on demand ("Sync now" in the admin
+  iCal tab), and every 30 minutes via `netlify/functions/ical-sync.mts`, and
+  `hasExternalBlockOverlap` in `lib/availability.ts` now actually sees real data. What's still
+  missing is the other direction: an exported `/calendar.ics` feed of our own confirmed/held
+  reservations for Airbnb/Vrbo to import back. Without it, a booking made on this site can still get
+  double-booked *on Airbnb/Vrbo* (they have no way to know about it until this feed exists) — that
+  direction is only ever caught after the fact by the double-booking mailer below, not prevented.
 
 - **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
   If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as
   its Stripe payment completes, and someone else books those same dates first, the webhook's
   confirm-update hits the DB's overlap constraint and can't go through. The guest has been charged
-  with no confirmed reservation. Right now this only logs a `CRITICAL` line to the function logs —
-  there's no admin-facing alert or automatic refund. Needs a real reconciliation path (flag in
-  `/admin`, email alert, or similar) before this matters at scale; low priority until there's enough
-  traffic for the race to actually happen.
+  with no confirmed reservation. This now sends an email via `lib/mailer.ts`'s `notifyDoubleBooking`
+  (same path the iCal sync uses for an external-block conflict), so it's no longer silent — but
+  there's still no automatic refund or in-admin resolution; see the reconciliation tool below.
+
+- **No admin-facing tool to resolve a detected double-booking** — both double-booking triggers
+  (iCal sync finding an external block that overlaps an active reservation, and the Stripe race
+  above) currently only send an email (`lib/mailer.ts`'s `notifyDoubleBooking`) with the reservation
+  id and dates in the message body — there's no view in `/admin` that lists open conflicts or lets
+  you act on one (cancel/refund the site reservation, mark it as manually resolved, etc.). Today
+  that has to happen by reading the email/function logs and using the existing Bookings tab and
+  Stripe dashboard by hand. Worth a dedicated admin view once double-bookings start happening often
+  enough that email-hunting isn't fast enough.

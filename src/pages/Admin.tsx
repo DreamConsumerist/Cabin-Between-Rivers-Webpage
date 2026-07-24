@@ -3,17 +3,19 @@ import type { FunctionComponent } from "../common/types";
 import { Button } from "../components/ui/Button";
 import { BookingsList } from "../features/admin/BookingsList";
 import { GalleryManager } from "../features/admin/GalleryManager";
+import { IcalForm } from "../features/admin/IcalForm";
 import { LoginForm } from "../features/admin/LoginForm";
 import { SettingsForm } from "../features/admin/SettingsForm";
 import { TermsForm } from "../features/admin/TermsForm";
 import { useAdminLogout, useAdminMe } from "../features/admin/hooks";
 
-type Tab = "bookings" | "gallery" | "pricing" | "terms";
+type Tab = "bookings" | "gallery" | "pricing" | "ical" | "terms";
 
 const TAB_LABEL: Record<Tab, string> = {
 	bookings: "Bookings",
 	gallery: "Gallery",
 	pricing: "Pricing",
+	ical: "iCal",
 	terms: "Terms",
 };
 
@@ -58,7 +60,7 @@ export const Admin = (): FunctionComponent => {
 				</div>
 
 				<div className="flex gap-2 border-b border-neutral-200">
-					{(["bookings", "gallery", "pricing", "terms"] as const).map((t) => (
+					{(["bookings", "gallery", "pricing", "ical", "terms"] as const).map((t) => (
 						<button
 							key={t}
 							type="button"
@@ -79,6 +81,7 @@ export const Admin = (): FunctionComponent => {
 				{tab === "bookings" && <BookingsList />}
 				{tab === "gallery" && <GalleryManager />}
 				{tab === "pricing" && <SettingsForm />}
+				{tab === "ical" && <IcalForm />}
 				{tab === "terms" && <TermsForm />}
 			</div>
 		</main>

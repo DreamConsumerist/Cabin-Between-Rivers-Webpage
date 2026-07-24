@@ -12,9 +12,17 @@ export type Pricing = {
 	minNights: number;
 };
 
+export type PriceOverride = {
+	checkIn: string;
+	checkOut: string;
+	nightlyRate: number;
+	label: string | null;
+};
+
 export type AvailabilityResult = {
 	blocked: Array<BlockedRange>;
 	pricing: Pricing | null;
+	priceOverrides: Array<PriceOverride>;
 };
 
 export type CreateBookingInput = {

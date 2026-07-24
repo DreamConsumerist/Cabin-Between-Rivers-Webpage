@@ -13,8 +13,6 @@ export type SettingsInput = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
-	airbnbIcalUrl: string;
-	vrboIcalUrl: string;
 };
 
 export const fetchAdminMe = (): Promise<{ authenticated: boolean }> => jsonFetch("/api/admin-me");
@@ -38,6 +36,39 @@ export const updateAdminSettings = (input: SettingsInput): Promise<{ settings: A
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),
 	});
+
+export type IcalSettings = {
+	airbnbIcalUrl: string;
+	vrboIcalUrl: string;
+	notificationEmails: string;
+};
+
+export type SourceSyncResult = {
+	source: "airbnb" | "vrbo";
+	ok: boolean;
+	eventCount: number;
+	inserted: number;
+	updated: number;
+	pruned: number;
+	conflicts: number;
+	error?: string;
+};
+
+export type IcalSyncSummary = { syncedAt: string; results: Array<SourceSyncResult> };
+
+export const fetchAdminIcal = (): Promise<IcalSettings> => jsonFetch("/api/admin-ical");
+
+export const updateAdminIcal = (
+	input: IcalSettings
+): Promise<IcalSettings & { sync: IcalSyncSummary | null }> =>
+	jsonFetch("/api/admin-ical", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
+export const triggerAdminIcalSync = (): Promise<IcalSyncSummary> =>
+	jsonFetch("/api/admin-ical-sync", { method: "POST" });
 
 export const fetchAdminTerms = (): Promise<{ termsContent: string }> =>
 	jsonFetch("/api/admin-terms");
@@ -66,3 +97,41 @@ export const updateAdminTerms = (termsContent: string): Promise<{ termsContent: 
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ termsContent }),
 	});
+
+export type PriceOverride = {
+	id: number;
+	checkIn: string;
+	checkOut: string;
+	nightlyRate: number;
+	label: string | null;
+};
+
+export type PriceOverrideInput = {
+	checkIn: string;
+	checkOut: string;
+	nightlyRate: number;
+	label: string;
+};
+
+export const fetchPriceOverrides = (): Promise<{ overrides: Array<PriceOverride> }> =>
+	jsonFetch("/api/admin-price-overrides");
+
+export const createPriceOverride = (input: PriceOverrideInput): Promise<{ override: PriceOverride }> =>
+	jsonFetch("/api/admin-price-overrides", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
+export const updatePriceOverride = (
+	id: number,
+	input: PriceOverrideInput
+): Promise<{ override: PriceOverride }> =>
+	jsonFetch("/api/admin-price-overrides", {
+		method: "PATCH",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ id, ...input }),
+	});
+
+export const deletePriceOverride = (id: number): Promise<{ deleted: boolean }> =>
+	jsonFetch(`/api/admin-price-overrides?id=${id}`, { method: "DELETE" });
