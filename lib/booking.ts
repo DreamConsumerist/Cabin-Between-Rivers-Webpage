@@ -16,7 +16,7 @@ export const createBookingSchema = z
 		checkOut: isoDate,
 		guestName: z.string().trim().min(1).max(255),
 		guestEmail: z.string().trim().email().max(255),
-		guestPhone: z.string().trim().max(50).optional(),
+		guestPhone: z.string().trim().min(1).max(50),
 		guests: z.number().int().min(1).max(20),
 	})
 	.refine((v) => dayjs(v.checkOut).isAfter(dayjs(v.checkIn)), {

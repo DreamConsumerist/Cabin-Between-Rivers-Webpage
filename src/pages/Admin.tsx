@@ -1,22 +1,26 @@
 import { useState } from "react";
 import type { FunctionComponent } from "../common/types";
 import { Button } from "../components/ui/Button";
+import { BookingsList } from "../features/admin/BookingsList";
 import { GalleryManager } from "../features/admin/GalleryManager";
 import { LoginForm } from "../features/admin/LoginForm";
 import { SettingsForm } from "../features/admin/SettingsForm";
+import { TermsForm } from "../features/admin/TermsForm";
 import { useAdminLogout, useAdminMe } from "../features/admin/hooks";
 
-type Tab = "gallery" | "pricing";
+type Tab = "bookings" | "gallery" | "pricing" | "terms";
 
 const TAB_LABEL: Record<Tab, string> = {
+	bookings: "Bookings",
 	gallery: "Gallery",
 	pricing: "Pricing",
+	terms: "Terms",
 };
 
 export const Admin = (): FunctionComponent => {
 	const { data, isPending } = useAdminMe();
 	const logout = useAdminLogout();
-	const [tab, setTab] = useState<Tab>("gallery");
+	const [tab, setTab] = useState<Tab>("bookings");
 
 	if (isPending) {
 		return (
@@ -54,7 +58,7 @@ export const Admin = (): FunctionComponent => {
 				</div>
 
 				<div className="flex gap-2 border-b border-neutral-200">
-					{(["gallery", "pricing"] as const).map((t) => (
+					{(["bookings", "gallery", "pricing", "terms"] as const).map((t) => (
 						<button
 							key={t}
 							type="button"
@@ -72,7 +76,10 @@ export const Admin = (): FunctionComponent => {
 					))}
 				</div>
 
-				{tab === "gallery" ? <GalleryManager /> : <SettingsForm />}
+				{tab === "bookings" && <BookingsList />}
+				{tab === "gallery" && <GalleryManager />}
+				{tab === "pricing" && <SettingsForm />}
+				{tab === "terms" && <TermsForm />}
 			</div>
 		</main>
 	);

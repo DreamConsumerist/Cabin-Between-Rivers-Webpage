@@ -8,9 +8,13 @@ import {
 import {
 	adminLogin,
 	adminLogout,
+	fetchAdminBookings,
 	fetchAdminMe,
 	fetchAdminSettings,
+	fetchAdminTerms,
 	updateAdminSettings,
+	updateAdminTerms,
+	type AdminBooking,
 	type AdminSettings,
 	type SettingsInput,
 } from "./api";
@@ -48,5 +52,23 @@ export const useUpdateAdminSettings = (): UseMutationResult<
 	return useMutation({
 		mutationFn: (input: SettingsInput) => updateAdminSettings(input),
 		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-settings"] }),
+	});
+};
+
+export const useAdminTerms = (): UseQueryResult<{ termsContent: string }, Error> =>
+	useQuery({ queryKey: ["admin-terms"], queryFn: fetchAdminTerms });
+
+export const useAdminBookings = (): UseQueryResult<{ reservations: Array<AdminBooking> }, Error> =>
+	useQuery({ queryKey: ["admin-bookings"], queryFn: fetchAdminBookings });
+
+export const useUpdateAdminTerms = (): UseMutationResult<
+	{ termsContent: string },
+	Error,
+	string
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (termsContent: string) => updateAdminTerms(termsContent),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-terms"] }),
 	});
 };

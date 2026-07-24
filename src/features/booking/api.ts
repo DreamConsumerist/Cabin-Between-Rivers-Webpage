@@ -22,7 +22,7 @@ export type CreateBookingInput = {
 	checkOut: string;
 	guestName: string;
 	guestEmail: string;
-	guestPhone?: string;
+	guestPhone: string;
 	guests: number;
 };
 
@@ -63,3 +63,10 @@ export const cancelReservation = (reservationId: number): Promise<{ cancelled: b
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ reservationId }),
 	});
+
+export const uploadIdPhoto = (reservationId: number, file: File): Promise<{ ok: boolean }> => {
+	const form = new FormData();
+	form.set("reservationId", String(reservationId));
+	form.set("file", file);
+	return jsonFetch("/api/upload-id-photo", { method: "POST", body: form });
+};

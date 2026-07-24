@@ -1,0 +1,1 @@
+ALTER TABLE "reservations" ADD COLUMN "id_photo_blob_key" varchar(255);

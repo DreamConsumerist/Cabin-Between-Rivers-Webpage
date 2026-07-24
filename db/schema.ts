@@ -37,6 +37,13 @@ export const reservations = pgTable("reservations", {
 	status: varchar({ length: 20 }).$type<ReservationStatus>().notNull().default("pending"),
 	holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }),
 	stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
+	// Set once the guest uploads a photo ID during the Terms step (required
+	// before payment — see TermsStep.tsx). Bytes live in Netlify Blobs' private
+	// `id-photos` store (lib/blobs.ts), keyed by this column, same pattern as
+	// galleryPhotos.blobKey — this is sensitive PII, so unlike gallery photos it
+	// is only ever served through an admin-gated endpoint
+	// (netlify/functions/admin-id-photo.mts), never a public one.
+	idPhotoBlobKey: varchar("id_photo_blob_key", { length: 255 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -69,6 +76,10 @@ export const settings = pgTable("settings", {
 	minNights: integer("min_nights").notNull().default(1),
 	airbnbIcalUrl: text("airbnb_ical_url"),
 	vrboIcalUrl: text("vrbo_ical_url"),
+	// Plain text, admin-edited (see netlify/functions/admin-terms.mts). Null
+	// until an admin saves their own copy — lib/terms.ts's DEFAULT_TERMS_CONTENT
+	// is served in the meantime.
+	termsContent: text("terms_content"),
 });
 
 // Stripe webhook idempotency: a processed event.id is recorded so retried

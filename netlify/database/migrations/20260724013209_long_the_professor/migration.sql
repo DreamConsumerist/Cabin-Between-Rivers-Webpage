@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "terms_content" text;

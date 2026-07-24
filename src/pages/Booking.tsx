@@ -44,6 +44,7 @@ export const Booking = (): FunctionComponent => {
 		Partial<GuestDetailsInput> | undefined
 	>(undefined);
 	const [termsAccepted, setTermsAccepted] = useState(false);
+	const [idPhotoUploaded, setIdPhotoUploaded] = useState(false);
 
 	const { checkIn, checkOut } = selection;
 	const nights = checkIn && checkOut ? checkOut.diff(checkIn, "day") : 0;
@@ -57,6 +58,10 @@ export const Booking = (): FunctionComponent => {
 		setStep("dates");
 		setReservation(null);
 		setSelection({ checkIn: null, checkOut: null });
+		// A fresh reservation needs its own terms acceptance and ID upload, not
+		// whatever was left over from an abandoned one.
+		setTermsAccepted(false);
+		setIdPhotoUploaded(false);
 		void queryClient.invalidateQueries({ queryKey: ["availability"] });
 	}, [queryClient]);
 
@@ -131,7 +136,7 @@ export const Booking = (): FunctionComponent => {
 
 	const canGoToDetails = canContinueFromDates;
 	const canGoToTerms = Boolean(reservation);
-	const canGoToPayment = canGoToTerms && termsAccepted;
+	const canGoToPayment = canGoToTerms && termsAccepted && idPhotoUploaded;
 
 	// The step tabs at the top are the only way to move between steps. Stepping
 	// back to "dates"/"details" from "terms"/"payment" abandons the reservation
@@ -155,6 +160,8 @@ export const Booking = (): FunctionComponent => {
 				onSettled: () => {
 					setReservation(null);
 					setNotice(null);
+					setTermsAccepted(false);
+					setIdPhotoUploaded(false);
 					setStep(target);
 					void queryClient.invalidateQueries({ queryKey: ["availability"] });
 				},
@@ -174,7 +181,7 @@ export const Booking = (): FunctionComponent => {
 				checkOut: toIsoDate(checkOut),
 				guestName: details.guestName,
 				guestEmail: details.guestEmail,
-				guestPhone: details.guestPhone || undefined,
+				guestPhone: details.guestPhone,
 				guests: details.guests,
 			},
 			{
@@ -314,10 +321,13 @@ export const Booking = (): FunctionComponent => {
 						/>
 						<TermsStep
 							accepted={termsAccepted}
+							idPhotoUploaded={idPhotoUploaded}
+							reservationId={reservation.reservationId}
 							onAcceptedChange={setTermsAccepted}
+							onIdPhotoUploadedChange={setIdPhotoUploaded}
 						/>
 						<Button
-							disabled={!termsAccepted}
+							disabled={!termsAccepted || !idPhotoUploaded}
 							onClick={() => {
 								goToStep("payment");
 							}}

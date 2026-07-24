@@ -27,8 +27,12 @@ Reference: the full technical plan lives at
   checkout) and `/booking/confirmation`, under `src/features/booking/` + `src/pages/`. Verified in
   a real browser end-to-end except the embedded payment form itself, which needs your Stripe
   publishable key locally — see Phase 6 below.
-- ✅ Admin panel: password-gated `/admin` page to manage the About-page gallery (upload, caption,
-  reorder, delete) and pricing/iCal settings without a redeploy. See "Admin panel" below.
+- ✅ Admin panel: password-gated `/admin` page to manage bookings (guest info, status, uploaded ID),
+  the About-page gallery (upload, caption, reorder, delete), pricing/iCal settings, and the Terms &
+  Conditions text — all without a redeploy. See "Admin panel" below.
+- ✅ Photo ID upload: the Terms step of the booking flow now requires a guest to upload a photo ID
+  (image only) before they can continue to payment. Stored privately in Netlify Blobs (a separate
+  `id-photos` store from the public gallery), only ever viewable by an admin via `/admin` → Bookings.
 
 ---
 
@@ -293,12 +297,65 @@ Next up: **Phase 5 — iCal sync** (the only remaining phase from the original p
 
 ## Known issues / TODO
 
-- **Terms & Conditions isn't editable from `/admin`** — `public/terms.html` is a static file that
-  guests read during the booking flow's Terms step (`TermsStep.tsx`). Changing the wording currently
-  means editing the file and redeploying. Would need somewhere to store the content (a `settings`
-  column, or its own table if it needs versioning/history), an admin editor (rich text or plain
-  textarea), and a route/function serving the current content instead of (or in addition to) the
-  static page.
+- **Gallery lightbox has no swipe navigation on mobile** — `src/components/ui/Gallery.tsx`. The
+  `Lightbox` component only advances photos via the on-screen chevron buttons (`onPrev`/`onNext`) or
+  arrow keys (`ArrowLeft`/`ArrowRight` in its `keydown` handler) — there's no touch/swipe gesture, so
+  on mobile a guest has to close out of the open photo and tap a different thumbnail to see the next
+  one, instead of swiping left/right like the desktop click-through experience. Needs a touch handler
+  (`onTouchStart`/`onTouchEnd`, comparing X position, calling the existing `onPrev`/`onNext`) added to
+  the image/lightbox container.
+
+- **"Booked!" confirmation needs a more satisfying splash** — `src/pages/BookingConfirmation.tsx`. The
+  confirmed state right now is just a plain heading and one line of text ("You're booked! Reservation
+  #X is confirmed."). Wants real design treatment — an animation/illustration, actual booking details
+  (dates, total, cabin name), maybe a "what happens next" section — instead of the current bare-bones
+  placeholder. Same idea likely applies to the initial "Booked!" moment before the confirmation page
+  too (a splash/transition rather than just swapping text once `status` flips to `confirmed`).
+
+- **Guest email follow-up with receipt** — nothing currently emails the guest anything. After
+  `stripe-webhook.mts` confirms a reservation, it should trigger a confirmation email with a receipt
+  (dates, amount charged, cabin details) — probably via Stripe's own receipt emails as a starting
+  point, or a dedicated transactional email service if more control over formatting is wanted. No
+  email provider is wired up in this project yet (see "Later phases" env vars above — this'll need its
+  own).
+
+- **Admin email notifications** — nothing currently notifies you of anything happening on the site;
+  you'd only find out by checking `/admin` or the function logs directly. Worth alerting on:
+  - a new booking coming in through the site,
+  - server-side issues (e.g. an unhandled function error — ties into the stack-trace item below,
+    since right now those errors only ever reach a log line, never a person),
+  - a detected double-booking / stuck payment (the exclusion-violation race already logged as
+    `CRITICAL` in `stripe-webhook.mts` — see below — currently has no one reading those logs).
+  Same open question as the guest receipt: needs an email (or similar) provider chosen and wired up
+  first.
+
+- **A spot for guests to leave a review** — nothing in the booking/confirmation flow prompts a guest
+  for a review after their stay. Could be as simple as a "how was your stay?" link in the post-stay
+  follow-up email above pointing to an external review platform (Airbnb/Google/etc.), or a review
+  feature built into the site itself — worth deciding which before building either the email or the
+  page.
+
+- **Functions leak raw stack traces on unhandled errors** — `netlify/functions/*.mts`. Most handlers
+  have no top-level try/catch (a few do, like `admin-gallery.mts` and `create-booking.mts`, but most
+  don't), so an unexpected exception — like the missing-env-var 502 hit while diagnosing the admin
+  login issue on 2026-07-23 — falls through to Netlify's raw Lambda error response: a full stack
+  trace with internal file paths (`file:///var/task/netlify/functions/admin-login.mjs:34:21`),
+  returned to *anyone* who hits the endpoint, not just admins. Needs a shared wrapper (e.g. in
+  `lib/http.ts`) around every handler that catches anything unhandled, logs the real error
+  server-side, and returns a generic `error("Something went wrong", 500)` to the caller instead.
+
+- **Admin panel / booking flow need clearer error messages for non-technical operators** — day-to-day
+  site management (uploading photos, checking bookings) is being handed off to people who aren't
+  going to read a stack trace or a network tab. Right now several failure paths are either silent or
+  too vague to relay: the About page's gallery preload swallows fetch errors entirely by design (see
+  `src/routes/about.ts` — a bad *preload* shouldn't break navigation, though `useGalleryPhotos` itself
+  does show "Couldn't load the gallery." on the page itself), the admin dashboard's error states are
+  generic one-line strings with nothing to reference, and a backend failure (like the stack-trace
+  issue above) just looks like "the page is broken" with no detail. Once the operator isn't you,
+  "it's broken" isn't actionable — needs a consistent pattern across the admin panel and booking flow:
+  a plain-language message (what failed) plus something concrete to relay when reporting it
+  (timestamp, and ideally a short reference/request id that shows up in the function logs too, so you
+  can find the matching error without guessing).
 
 - **iCal import/export sync (Phase 5) isn't built yet** — the admin Settings tab already lets you
   *enter* the Airbnb/Vrbo iCal URLs (`airbnbIcalUrl`/`vrboIcalUrl` on the `settings` table), but

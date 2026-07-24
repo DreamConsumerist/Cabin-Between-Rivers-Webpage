@@ -19,3 +19,9 @@ export const settingsFormSchema = z.object({
 
 export type SettingsFormInput = z.input<typeof settingsFormSchema>;
 export type SettingsFormValues = z.output<typeof settingsFormSchema>;
+
+export const termsFormSchema = z.object({
+	termsContent: z.string().trim().min(1, "Terms content is required"),
+});
+
+export type TermsFormValues = z.infer<typeof termsFormSchema>;

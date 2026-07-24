@@ -38,3 +38,31 @@ export const updateAdminSettings = (input: SettingsInput): Promise<{ settings: A
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify(input),
 	});
+
+export const fetchAdminTerms = (): Promise<{ termsContent: string }> =>
+	jsonFetch("/api/admin-terms");
+
+export type AdminBooking = {
+	id: number;
+	checkIn: string;
+	checkOut: string;
+	guestName: string;
+	guestEmail: string;
+	guestPhone: string | null;
+	guests: number;
+	amountTotal: number;
+	status: "pending" | "confirmed" | "expired" | "cancelled";
+	holdExpiresAt: string | null;
+	createdAt: string;
+	hasIdPhoto: boolean;
+};
+
+export const fetchAdminBookings = (): Promise<{ reservations: Array<AdminBooking> }> =>
+	jsonFetch("/api/admin-bookings");
+
+export const updateAdminTerms = (termsContent: string): Promise<{ termsContent: string }> =>
+	jsonFetch("/api/admin-terms", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ termsContent }),
+	});

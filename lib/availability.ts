@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
@@ -114,6 +114,23 @@ export const upsertSettings = async (update: SettingsUpdate) => {
 	return rows[0]!;
 };
 
+// Same single-row-upsert shape as `upsertSettings`, but scoped to just
+// `termsContent` — kept separate so the Terms editor doesn't need to resend
+// pricing/iCal fields (and vice versa) just to save one of the two.
+export const updateTermsContent = async (termsContent: string) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set({ termsContent })
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values({ termsContent }).returning();
+	return rows[0]!;
+};
+
 export const getReservationById = async (id: number) => {
 	const rows = await db
 		.select()
@@ -128,7 +145,7 @@ export type NewReservation = {
 	checkOut: string;
 	guestName: string;
 	guestEmail: string;
-	guestPhone?: string;
+	guestPhone: string;
 	guests: number;
 	amountTotal: number;
 };
@@ -170,6 +187,26 @@ export const cancelPendingReservation = async (id: number): Promise<boolean> => 
 		.where(and(eq(reservations.id, id), eq(reservations.status, "pending")))
 		.returning({ id: reservations.id });
 	return rows.length > 0;
+};
+
+// Records the guest's uploaded photo ID (required before payment — see
+// TermsStep.tsx). Gated on status = 'pending', same reasoning as
+// cancelPendingReservation: a guest shouldn't be able to attach a new upload
+// to a reservation that's already confirmed/expired/cancelled — including one
+// that isn't theirs, since reservationId is the only credential this endpoint
+// checks.
+export const setReservationIdPhoto = async (id: number, blobKey: string): Promise<boolean> => {
+	const rows = await db
+		.update(reservations)
+		.set({ idPhotoBlobKey: blobKey })
+		.where(and(eq(reservations.id, id), eq(reservations.status, "pending")))
+		.returning({ id: reservations.id });
+	return rows.length > 0;
+};
+
+// All reservations, newest check-in first — backs the admin Bookings tab.
+export const listReservations = async () => {
+	return db.select().from(reservations).orderBy(desc(reservations.checkIn));
 };
 
 export const insertPendingReservation = async (r: NewReservation) => {
