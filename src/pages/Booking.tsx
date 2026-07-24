@@ -9,6 +9,7 @@ import { HoldTimer } from "../features/booking/HoldTimer";
 import { TermsStep } from "../features/booking/TermsStep";
 import { cancelReservation, type CreateBookingResult } from "../features/booking/api";
 import {
+	buildNightlyBreakdown,
 	computeEstimatedTotalCents,
 	formatCents,
 	toIsoDate,
@@ -44,6 +45,7 @@ export const Booking = (): FunctionComponent => {
 		Partial<GuestDetailsInput> | undefined
 	>(undefined);
 	const [termsAccepted, setTermsAccepted] = useState(false);
+	const [idPhotoUploaded, setIdPhotoUploaded] = useState(false);
 
 	const { checkIn, checkOut } = selection;
 	const nights = checkIn && checkOut ? checkOut.diff(checkIn, "day") : 0;
@@ -57,6 +59,10 @@ export const Booking = (): FunctionComponent => {
 		setStep("dates");
 		setReservation(null);
 		setSelection({ checkIn: null, checkOut: null });
+		// A fresh reservation needs its own terms acceptance and ID upload, not
+		// whatever was left over from an abandoned one.
+		setTermsAccepted(false);
+		setIdPhotoUploaded(false);
 		void queryClient.invalidateQueries({ queryKey: ["availability"] });
 	}, [queryClient]);
 
@@ -131,7 +137,7 @@ export const Booking = (): FunctionComponent => {
 
 	const canGoToDetails = canContinueFromDates;
 	const canGoToTerms = Boolean(reservation);
-	const canGoToPayment = canGoToTerms && termsAccepted;
+	const canGoToPayment = canGoToTerms && termsAccepted && idPhotoUploaded;
 
 	// The step tabs at the top are the only way to move between steps. Stepping
 	// back to "dates"/"details" from "terms"/"payment" abandons the reservation
@@ -155,6 +161,8 @@ export const Booking = (): FunctionComponent => {
 				onSettled: () => {
 					setReservation(null);
 					setNotice(null);
+					setTermsAccepted(false);
+					setIdPhotoUploaded(false);
 					setStep(target);
 					void queryClient.invalidateQueries({ queryKey: ["availability"] });
 				},
@@ -174,7 +182,7 @@ export const Booking = (): FunctionComponent => {
 				checkOut: toIsoDate(checkOut),
 				guestName: details.guestName,
 				guestEmail: details.guestEmail,
-				guestPhone: details.guestPhone || undefined,
+				guestPhone: details.guestPhone,
 				guests: details.guests,
 			},
 			{
@@ -256,6 +264,8 @@ export const Booking = (): FunctionComponent => {
 						{availability.data && (
 							<Calendar
 								blocked={availability.data.blocked}
+								priceOverrides={availability.data.priceOverrides}
+								pricing={availability.data.pricing}
 								selection={selection}
 								onChange={setSelection}
 							/>
@@ -265,19 +275,49 @@ export const Booking = (): FunctionComponent => {
 								{checkIn.format("MMM D")} – {checkOut.format("MMM D, YYYY")} ·{" "}
 								{nights} night
 								{nights === 1 ? "" : "s"}
-								{pricing && !belowMinNights && (
-									<>
-										{" "}
-										· est.{" "}
-										{formatCents(computeEstimatedTotalCents(nights, pricing))}
-									</>
-								)}
 							</p>
 						)}
 						{belowMinNights && pricing && (
 							<p className="text-sm text-red-600">
 								Minimum stay is {pricing.minNights} nights.
 							</p>
+						)}
+						{checkIn && checkOut && pricing && !belowMinNights && (
+							<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
+								<ul className="flex flex-col gap-1">
+									{buildNightlyBreakdown(
+										checkIn,
+										checkOut,
+										pricing,
+										availability.data?.priceOverrides ?? []
+									).map(({ date, rateCents }) => (
+										<li
+											key={date.format("YYYY-MM-DD")}
+											className="flex justify-between text-neutral-600"
+										>
+											<span>{date.format("ddd, MMM D")}</span>
+											<span>{formatCents(rateCents)}</span>
+										</li>
+									))}
+									<li className="flex justify-between text-neutral-600">
+										<span>Cleaning fee</span>
+										<span>{formatCents(pricing.cleaningFee)}</span>
+									</li>
+								</ul>
+								<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
+									<span>Total</span>
+									<span>
+										{formatCents(
+											computeEstimatedTotalCents(
+												checkIn,
+												checkOut,
+												pricing,
+												availability.data?.priceOverrides ?? []
+											)
+										)}
+									</span>
+								</div>
+							</div>
 						)}
 						<Button
 							disabled={!canContinueFromDates}
@@ -314,10 +354,13 @@ export const Booking = (): FunctionComponent => {
 						/>
 						<TermsStep
 							accepted={termsAccepted}
+							idPhotoUploaded={idPhotoUploaded}
+							reservationId={reservation.reservationId}
 							onAcceptedChange={setTermsAccepted}
+							onIdPhotoUploadedChange={setIdPhotoUploaded}
 						/>
 						<Button
-							disabled={!termsAccepted}
+							disabled={!termsAccepted || !idPhotoUploaded}
 							onClick={() => {
 								goToStep("payment");
 							}}

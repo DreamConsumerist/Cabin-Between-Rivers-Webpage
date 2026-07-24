@@ -58,7 +58,7 @@ export const BookingForm = ({
 				error={errors.guestEmail?.message}
 			/>
 			<TextField
-				label="Phone (optional)"
+				label="Phone"
 				type="tel"
 				{...register("guestPhone")}
 				error={errors.guestPhone?.message}

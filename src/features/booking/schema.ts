@@ -5,7 +5,7 @@ import { z } from "zod";
 export const guestDetailsSchema = z.object({
 	guestName: z.string().trim().min(1, "Name is required").max(255),
 	guestEmail: z.string().trim().email("Enter a valid email").max(255),
-	guestPhone: z.string().trim().max(50).optional().or(z.literal("")),
+	guestPhone: z.string().trim().min(1, "Phone number is required").max(50),
 	guests: z.coerce.number().int().min(1, "At least 1 guest").max(20, "Max 20 guests"),
 });
 

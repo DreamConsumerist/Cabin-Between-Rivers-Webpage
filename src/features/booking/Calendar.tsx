@@ -1,13 +1,21 @@
 import { useState } from "react";
 import dayjs, { type Dayjs } from "dayjs";
 import type { FunctionComponent } from "../../common/types";
-import type { BlockedRange } from "./api";
-import { getMonthGrid, isDateBlocked, isRangeBlocked } from "./dateUtilities";
+import type { BlockedRange, PriceOverride, Pricing } from "./api";
+import {
+	formatCentsCompact,
+	getMonthGrid,
+	isDateBlocked,
+	isRangeBlocked,
+	nightlyRateForDate,
+} from "./dateUtilities";
 
 export type DateSelection = { checkIn: Dayjs | null; checkOut: Dayjs | null };
 
 type CalendarProps = {
 	blocked: Array<BlockedRange>;
+	pricing: Pricing | null;
+	priceOverrides: Array<PriceOverride>;
 	selection: DateSelection;
 	onChange: (selection: DateSelection) => void;
 };
@@ -18,7 +26,13 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // check-out. Clicking the same day again clears the selection; clicking before
 // check-in restarts from there; a range that would cross a blocked date instead
 // restarts the selection at the newly clicked day.
-export const Calendar = ({ blocked, selection, onChange }: CalendarProps): FunctionComponent => {
+export const Calendar = ({
+	blocked,
+	pricing,
+	priceOverrides,
+	selection,
+	onChange,
+}: CalendarProps): FunctionComponent => {
 	const today = dayjs().startOf("day");
 	const [visibleMonth, setVisibleMonth] = useState(() => today.startOf("month"));
 
@@ -83,14 +97,17 @@ export const Calendar = ({ blocked, selection, onChange }: CalendarProps): Funct
 						checkOut &&
 						date.isAfter(checkIn, "day") &&
 						date.isBefore(checkOut, "day");
+					const rateCents = pricing
+						? nightlyRateForDate(date, pricing.nightlyRate, priceOverrides)
+						: null;
 
 					return (
 						<button
-							key={date.format("YYYY-MM-DD")}
+							key={`${date.format("YYYY-MM-DD")}-${inMonth}`}
 							disabled={disabled}
 							type="button"
 							className={[
-								"aspect-square rounded-md border text-sm transition-colors",
+								"flex aspect-square flex-col items-center justify-center gap-0.5 rounded-md border text-sm transition-colors",
 								!inMonth ? "invisible" : "",
 								disabled && inMonth
 									? "cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-300"
@@ -103,7 +120,17 @@ export const Calendar = ({ blocked, selection, onChange }: CalendarProps): Funct
 							].join(" ")}
 							onClick={() => { handleDayClick(date); }}
 						>
-							{date.date()}
+							<span>{date.date()}</span>
+							{inMonth && !isPast && !blockedDay && rateCents != null && (
+								<span
+									className={[
+										"text-[10px] leading-none",
+										isEndpoint || inRange ? "text-neutral-700" : "text-neutral-500",
+									].join(" ")}
+								>
+									{formatCentsCompact(rateCents)}
+								</span>
+							)}
 						</button>
 					);
 				})}

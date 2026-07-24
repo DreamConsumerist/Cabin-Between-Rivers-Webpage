@@ -22,3 +22,8 @@ export const getWebhookSecret = (): string => {
     }
     return secret;
 };
+
+// Full refund of a charged payment intent — used by the reconciliation
+// tool's cancel-&-refund action (see netlify/functions/admin-cancel-reservation.mts).
+export const refundPayment = (paymentIntentId: string) =>
+    getStripe().refunds.create({ payment_intent: paymentIntentId });

@@ -1,7 +1,10 @@
-import { and, eq, gt, lt, or, sql } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
+import { isExclusionViolation } from "./dbErrors";
+import type { ExportableReservation } from "./icalExport";
 
 export type BlockedRange = {
 	checkIn: string;
@@ -14,11 +17,14 @@ export type BlockedRange = {
 const activeReservation = () =>
 	or(
 		eq(reservations.status, "confirmed"),
-		and(eq(reservations.status, "pending"), gt(reservations.holdExpiresAt, sql`now()`))
+		and(
+			eq(reservations.status, "pending"),
+			gt(reservations.holdExpiresAt, sql`now()`)
+		)
 	);
 
 // SQL predicate: does [checkIn, checkOut) overlap the given row's date range?
-const overlaps = (
+export const overlaps = (
 	col: { checkIn: unknown; checkOut: unknown },
 	checkIn: string,
 	checkOut: string
@@ -85,22 +91,65 @@ export const hasExternalBlockOverlap = async (
 	return rows.length > 0;
 };
 
+// Site-direct reservations that block dates (see activeReservation()) — the
+// data source for the public iCal export feed (lib/icalExport.ts). Deliberately
+// selects only id/checkIn/checkOut, never guest name/email/phone.
+export const getExportableReservations = async (): Promise<
+	ExportableReservation[]
+> =>
+	db
+		.select({
+			id: reservations.id,
+			checkIn: reservations.checkIn,
+			checkOut: reservations.checkOut,
+		})
+		.from(reservations)
+		.where(activeReservation())
+		.orderBy(reservations.checkIn);
+
+export type ActiveReservationOverlap = {
+	id: number;
+	checkIn: string;
+	checkOut: string;
+};
+
+// Active site reservations (confirmed, or pending with a live hold) that
+// overlap [checkIn, checkOut) — used by the iCal sync (lib/icalSync.ts) and
+// the Stripe webhook to detect a double-booking conflict: a newly-synced
+// external block, or a payment race, landing on dates the site already
+// considers taken.
+export const getActiveReservationsOverlapping = async (
+	checkIn: string,
+	checkOut: string
+): Promise<ActiveReservationOverlap[]> => {
+	return db
+		.select({
+			id: reservations.id,
+			checkIn: reservations.checkIn,
+			checkOut: reservations.checkOut,
+		})
+		.from(reservations)
+		.where(and(activeReservation(), overlaps(reservations, checkIn, checkOut)));
+};
+
 export const getSettings = async () => {
 	const rows = await db.select().from(settings).limit(1);
 	return rows[0] ?? null;
 };
 
-export type SettingsUpdate = {
+export type PricingUpdate = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
-	airbnbIcalUrl: string | null;
-	vrboIcalUrl: string | null;
 };
 
 // The settings table is always a single row (see db/schema.ts) — update it if
-// it exists, otherwise create it (e.g. before it's ever been seeded).
-export const upsertSettings = async (update: SettingsUpdate) => {
+// it exists, otherwise create it (e.g. before it's ever been seeded). Scoped
+// to just the pricing fields — see updateIcalUrls/updateTermsContent for the
+// same single-row-upsert shape scoped to their own fields, so the Pricing,
+// iCal, and Terms admin tabs never resend each other's fields just to save
+// their own.
+export const updatePricingSettings = async (update: PricingUpdate) => {
 	const existing = await getSettings();
 	if (existing) {
 		const rows = await db
@@ -111,6 +160,76 @@ export const upsertSettings = async (update: SettingsUpdate) => {
 		return rows[0]!;
 	}
 	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+export type IcalUpdate = {
+	airbnbIcalUrl: string | null;
+	vrboIcalUrl: string | null;
+	notificationEmails: string | null;
+};
+
+// Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
+// the Airbnb/Vrbo iCal URLs and the double-booking notification recipients
+// (see lib/mailer.ts) — they're saved together from the same admin iCal tab.
+export const updateIcalUrls = async (update: IcalUpdate) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set(update)
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+const setExportToken = async (token: string): Promise<string> => {
+	const existing = await getSettings();
+	if (existing) {
+		await db
+			.update(settings)
+			.set({ exportToken: token })
+			.where(eq(settings.id, existing.id));
+	} else {
+		await db.insert(settings).values({ exportToken: token });
+	}
+	return token;
+};
+
+// Lazy-generates the public export feed's secret token on first read — called
+// from the admin-gated GET /api/admin-ical so the admin sees a working feed
+// URL immediately, with no separate "generate" step. The public export
+// endpoint (netlify/functions/calendar-export.mts) must never call this —
+// only plain getSettings() — so an unauthenticated request can't trigger
+// token creation as a side effect.
+export const getOrCreateExportToken = async (): Promise<string> => {
+	const existing = await getSettings();
+	if (existing?.exportToken) return existing.exportToken;
+	return setExportToken(randomBytes(24).toString("hex"));
+};
+
+// Explicit admin action (netlify/functions/admin-ical-export-token.mts) that
+// invalidates the old export feed URL by minting a new token.
+export const regenerateExportToken = async (): Promise<string> =>
+	setExportToken(randomBytes(24).toString("hex"));
+
+// Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
+// `termsContent` — kept separate so the Terms editor doesn't need to resend
+// pricing/iCal fields (and vice versa) just to save one of the two.
+export const updateTermsContent = async (termsContent: string) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set({ termsContent })
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values({ termsContent }).returning();
 	return rows[0]!;
 };
 
@@ -128,48 +247,75 @@ export type NewReservation = {
 	checkOut: string;
 	guestName: string;
 	guestEmail: string;
-	guestPhone?: string;
+	guestPhone: string;
 	guests: number;
 	amountTotal: number;
 };
 
-// Postgres exclusion-violation error code — thrown when the EXCLUDE constraint
-// rejects an overlapping reservation.
-export const EXCLUSION_VIOLATION = "23P01";
-
-const OVERLAP_CONSTRAINT = "reservations_no_overlap";
-
-// Detects the overlap-constraint violation across every shape it can arrive in:
-// node-postgres (local `netlify dev`) and Neon HTTP (production) expose `.code`
-// and `.constraint` differently, and Drizzle may wrap the driver error in
-// `.cause`. We walk the cause chain and also fall back to the message text.
-export const isOverlapError = (e: unknown): boolean => {
-	let current: unknown = e;
-	for (let depth = 0; depth < 6 && current != null; depth++) {
-		const err = current as {
-			code?: unknown;
-			constraint?: unknown;
-			cause?: unknown;
-		};
-		if (err.code === EXCLUSION_VIOLATION) return true;
-		if (err.constraint === OVERLAP_CONSTRAINT) return true;
-		current = err.cause;
-	}
-	const message = e instanceof Error ? e.message : String(e);
-	return message.includes(OVERLAP_CONSTRAINT) || /exclusion constraint/i.test(message);
-};
+// Detects the reservations_no_overlap EXCLUDE constraint violation. See
+// lib/dbErrors.ts for how driver error shapes are walked.
+export const isOverlapError = (e: unknown): boolean =>
+	isExclusionViolation(e, "reservations_no_overlap");
 
 // Lets a guest abandon their own still-pending hold (e.g. going back to change
 // dates) so those dates free up immediately instead of waiting out the full
 // hold window. Only ever transitions pending -> cancelled; already-confirmed
 // reservations are left untouched by this WHERE clause.
-export const cancelPendingReservation = async (id: number): Promise<boolean> => {
+export const cancelPendingReservation = async (
+	id: number
+): Promise<boolean> => {
 	const rows = await db
 		.update(reservations)
 		.set({ status: "cancelled" })
 		.where(and(eq(reservations.id, id), eq(reservations.status, "pending")))
 		.returning({ id: reservations.id });
 	return rows.length > 0;
+};
+
+// Admin-authority cancellation: unlike cancelPendingReservation above (guest-
+// facing, pending-only), this also works on confirmed reservations — used by
+// the double-booking reconciliation tool
+// (netlify/functions/admin-cancel-reservation.mts). Does NOT touch Stripe;
+// the caller issues a refund first when a payment was charged, before
+// calling this, so a reservation is never freed without also being refunded.
+export const adminCancelReservation = async (id: number) => {
+	const rows = await db
+		.update(reservations)
+		.set({ status: "cancelled" })
+		.where(
+			and(
+				eq(reservations.id, id),
+				or(
+					eq(reservations.status, "confirmed"),
+					eq(reservations.status, "pending")
+				)
+			)
+		)
+		.returning();
+	return rows[0] ?? null;
+};
+
+// Records the guest's uploaded photo ID (required before payment — see
+// TermsStep.tsx). Gated on status = 'pending', same reasoning as
+// cancelPendingReservation: a guest shouldn't be able to attach a new upload
+// to a reservation that's already confirmed/expired/cancelled — including one
+// that isn't theirs, since reservationId is the only credential this endpoint
+// checks.
+export const setReservationIdPhoto = async (
+	id: number,
+	blobKey: string
+): Promise<boolean> => {
+	const rows = await db
+		.update(reservations)
+		.set({ idPhotoBlobKey: blobKey })
+		.where(and(eq(reservations.id, id), eq(reservations.status, "pending")))
+		.returning({ id: reservations.id });
+	return rows.length > 0;
+};
+
+// All reservations, newest check-in first — backs the admin Bookings tab.
+export const listReservations = async () => {
+	return db.select().from(reservations).orderBy(desc(reservations.checkIn));
 };
 
 export const insertPendingReservation = async (r: NewReservation) => {

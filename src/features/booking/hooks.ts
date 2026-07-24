@@ -10,6 +10,7 @@ import {
 	createPayment,
 	fetchAvailability,
 	fetchReservationStatus,
+	uploadIdPhoto,
 	type AvailabilityResult,
 	type CreateBookingInput,
 	type CreateBookingResult,
@@ -36,6 +37,15 @@ export const useCancelReservation = (): UseMutationResult<
 	Error,
 	number
 > => useMutation({ mutationFn: (reservationId: number) => cancelReservation(reservationId) });
+
+export const useUploadIdPhoto = (): UseMutationResult<
+	{ ok: boolean },
+	Error,
+	{ reservationId: number; file: File }
+> =>
+	useMutation({
+		mutationFn: ({ reservationId, file }) => uploadIdPhoto(reservationId, file),
+	});
 
 // Polls until the webhook flips the reservation to a terminal state.
 export const useReservationStatus = (

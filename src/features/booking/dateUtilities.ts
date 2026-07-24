@@ -1,5 +1,5 @@
 import dayjs, { type Dayjs } from "dayjs";
-import type { BlockedRange, Pricing } from "./api";
+import type { BlockedRange, PriceOverride, Pricing } from "./api";
 
 export const toIsoDate = (d: Dayjs): string => d.format("YYYY-MM-DD");
 
@@ -37,8 +37,56 @@ export const getMonthGrid = (monthStart: Dayjs): Array<CalendarDay> => {
 	return days;
 };
 
-export const computeEstimatedTotalCents = (nights: number, pricing: Pricing): number =>
-	nights * pricing.nightlyRate + pricing.cleaningFee;
+// The nightly rate in effect for a given night: the override covering it, if
+// any, else the default rate. Mirrors lib/booking.ts's nightlyRateForNight —
+// the server is authoritative; this is only for the client-side estimate.
+export const nightlyRateForDate = (
+	date: Dayjs,
+	defaultRate: number,
+	overrides: Array<PriceOverride>
+): number => {
+	const override = overrides.find(
+		(o) => !date.isBefore(dayjs(o.checkIn), "day") && date.isBefore(dayjs(o.checkOut), "day")
+	);
+	return override ? override.nightlyRate : defaultRate;
+};
+
+export const computeEstimatedTotalCents = (
+	checkIn: Dayjs,
+	checkOut: Dayjs,
+	pricing: Pricing,
+	overrides: Array<PriceOverride>
+): number => {
+	let total = pricing.cleaningFee;
+	let night = checkIn;
+	while (night.isBefore(checkOut, "day")) {
+		total += nightlyRateForDate(night, pricing.nightlyRate, overrides);
+		night = night.add(1, "day");
+	}
+	return total;
+};
 
 export const formatCents = (cents: number): string =>
 	(cents / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+// Compact form for tight spaces (calendar day cells): drops cents when the
+// rate is a whole dollar amount, which nightly rates always are in practice.
+export const formatCentsCompact = (cents: number): string =>
+	cents % 100 === 0 ? `$${cents / 100}` : formatCents(cents);
+
+export type NightlyLineItem = { date: Dayjs; rateCents: number };
+
+export const buildNightlyBreakdown = (
+	checkIn: Dayjs,
+	checkOut: Dayjs,
+	pricing: Pricing,
+	overrides: Array<PriceOverride>
+): Array<NightlyLineItem> => {
+	const nights: Array<NightlyLineItem> = [];
+	let night = checkIn;
+	while (night.isBefore(checkOut, "day")) {
+		nights.push({ date: night, rateCents: nightlyRateForDate(night, pricing.nightlyRate, overrides) });
+		night = night.add(1, "day");
+	}
+	return nights;
+};

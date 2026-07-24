@@ -3,7 +3,8 @@ import type Stripe from "stripe";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/client";
 import { processedWebhookEvents, reservations } from "../../db/schema";
-import { isOverlapError } from "../../lib/availability";
+import { getReservationById, isOverlapError } from "../../lib/availability";
+import { flagDoubleBooking } from "../../lib/conflicts";
 import { error, json } from "../../lib/http";
 import { getStripe, getWebhookSecret } from "../../lib/stripe";
 
@@ -82,6 +83,14 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 						`stripe-webhook: CRITICAL — payment succeeded for reservation ${reservationId} (event ${event.id}) but its dates are no longer available; needs manual refund/reconciliation`,
 						e
 					);
+					const reservation = await getReservationById(reservationId);
+					await flagDoubleBooking({
+						source: "stripe-webhook",
+						checkIn: reservation?.checkIn ?? "unknown",
+						checkOut: reservation?.checkOut ?? "unknown",
+						detail: `Stripe payment succeeded for reservation #${reservationId} (event ${event.id}) but the dates were rebooked before the webhook landed. Needs manual refund/reconciliation.`,
+						reservationId,
+					});
 				} else {
 					console.error(
 						`stripe-webhook: failed to confirm reservation ${reservationId} (event ${event.id})`,
