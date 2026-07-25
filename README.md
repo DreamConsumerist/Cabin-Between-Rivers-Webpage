@@ -8,13 +8,22 @@ Reservation website for a single Airbnb listing, hosted on Netlify.
   server-enforced holds and a DB-level overlap constraint that makes double-booking impossible.
 - **Payments** — Stripe embedded Checkout, confirmed via a signature-verified, idempotent webhook
   (never the browser redirect).
-- **Admin panel** (`/admin`, password-gated) — manage the About-page photo gallery (upload, caption,
-  reorder, delete) and pricing/min-nights settings without a redeploy.
+- **iCal sync** — imports Airbnb/Vrbo `.ics` blocks so site availability reflects bookings made
+  elsewhere, and exports the site's own reservations as a token-gated `.ics` feed for Airbnb/Vrbo to
+  import back, closing the loop in both directions. Runs on save, on demand, and every 30 minutes via
+  a scheduled function. If the two sides still disagree (e.g. an external block overlapping an active
+  reservation, or a payment confirming into dates rebooked in the meantime), it's logged as a
+  double-booking conflict and emailed to the admin.
+- **Admin panel** (`/admin`, password-gated) — manage bookings (guest info, cancel/refund, uploaded
+  photo ID, a month-at-a-glance calendar), resolve flagged double-booking conflicts, the About-page
+  photo gallery (upload, caption, reorder, delete), pricing/min-nights/iCal settings, and the Terms &
+  Conditions text — all without a redeploy.
 - **Database** — Postgres (Netlify DB / Neon) via Drizzle ORM, migrated with Drizzle Kit and
   Netlify's migration tracker.
 
-Not yet built: iCal import/export sync with Airbnb and Vrbo (the one remaining phase from the
-original plan — see `SETUP.md`).
+Known gaps: no guest-facing email yet (booking receipt, admin new-booking alert) — the
+double-booking conflict alert above is the only transactional email currently wired up. See
+`SETUP.md`'s "Known issues / TODO" for this and other open items.
 
 ## Stack
 
@@ -62,7 +71,8 @@ netlify dev       # serves the app + functions on http://localhost:8888
 ```
 db/               Drizzle schema (db/schema.ts) and DB client
 lib/              Server-side logic shared by functions (availability, booking, gallery,
-                  Stripe, admin auth, HTTP helpers)
+                  Stripe, admin auth, iCal sync/export, double-booking conflicts, email
+                  via Resend, HTTP helpers)
 netlify/
   functions/      API endpoints (booking, payments, admin, gallery, cron)
   database/       Generated Drizzle migrations

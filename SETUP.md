@@ -14,7 +14,8 @@ Reference: the full technical plan lives at
 - ✅ `netlify.toml` — build, functions dir, `netlify dev` config, `/api/*` → functions redirect.
 - ✅ `netlify/functions/health.mts` — a health-check endpoint (`/api/health`).
 - ✅ Database code scaffolded: `db/schema.ts` (reservations, external_blocks, settings,
-  processed_webhook_events), `db/client.ts` (Drizzle `netlify-db` adapter), `drizzle.config.ts`.
+  processed_webhook_events, gallery_photos, price_overrides, double_booking_conflicts),
+  `db/client.ts` (Drizzle `netlify-db` adapter), `drizzle.config.ts`.
 - ✅ Packages: `@netlify/database` + `drizzle-orm@beta` + `drizzle-kit@beta` (the beta channel is
   what ships the `drizzle-orm/netlify-db` adapter Netlify's docs recommend).
 - ✅ First migration generated (timestamp-prefixed): `netlify/database/migrations/<ts>_*/migration.sql`.
@@ -33,6 +34,23 @@ Reference: the full technical plan lives at
 - ✅ Photo ID upload: the Terms step of the booking flow now requires a guest to upload a photo ID
   (image only) before they can continue to payment. Stored privately in Netlify Blobs (a separate
   `id-photos` store from the public gallery), only ever viewable by an admin via `/admin` → Bookings.
+- ✅ iCal sync (Phase 5), both directions: **import** pulls Airbnb/Vrbo `.ics` URLs (set from the
+  `/admin` iCal tab) into `external_blocks`, on save, on demand ("Sync now"), and every 30 minutes
+  via `netlify/functions/ical-sync.mts`; **export** serves the site's own confirmed/held
+  reservations as a `.ics` feed at `netlify/functions/calendar-export.mts`, gated by a secret token
+  (`settings.export_token`, lazily generated the first time the iCal tab loads, rotatable via
+  "Regenerate URL") so Airbnb/Vrbo can import bookings made directly on the site.
+- ✅ Double-booking conflict detection + resolution: `lib/conflicts.ts` flags a row in
+  `double_booking_conflicts` whenever the iCal sync finds an external block overlapping an active
+  reservation, or the Stripe webhook confirms a payment into dates that were rebooked in the
+  meantime. The `/admin` Conflicts tab lists open/resolved conflicts and lets you mark one resolved
+  or, for one tied to a live reservation, cancel & refund it directly (auto-marking the conflict
+  resolved). If `RESEND_API_KEY`/`NOTIFICATION_FROM_EMAIL` are set (see "Later phases" below), the
+  admin's configured address(es) also get emailed when a conflict is flagged.
+- ✅ Admin Bookings tab: alongside the existing list, a month-at-a-glance calendar
+  (`src/features/admin/BookingsCalendar.tsx`) tints each reservation's nights by status
+  (pending/confirmed), shows the guest's name on their check-in day, highlights a reservation's
+  whole date range on hover, and clicking a day jumps to that reservation in the list below.
 
 ---
 
@@ -199,9 +217,9 @@ to `confirmed`.
 
 ## Admin panel — gallery + pricing (test locally)
 
-`/admin` is a single password-gated page (no per-user accounts — this is a one-operator site) for
-managing the About-page gallery and the `settings` table (nightly rate, cleaning fee, min nights,
-iCal URLs) without touching code or redeploying.
+`/admin` is a single password-gated page (no per-user accounts — this is a one-operator site) with
+tabs for Bookings, Gallery, Pricing, iCal, Conflicts, and Terms. This section covers signing in plus
+the Gallery/Pricing tabs; Bookings/iCal/Conflicts are covered in Phase 5 below.
 
 **How auth works:** one shared password, checked against `ADMIN_PASSWORD`. On success, a Netlify
 Function signs a session token (HMAC, `ADMIN_SESSION_SECRET`) into an HttpOnly cookie — no
@@ -234,6 +252,36 @@ or in production); only display metadata (caption, dimensions, order) lives in P
    uploaded in the mosaic gallery, and `http://localhost:8888/api/check-availability` should reflect
    the new pricing.
 
+## Phase 5 — iCal sync + conflict resolution (test locally)
+
+Two directions: **import** pulls Airbnb/Vrbo's own `.ics` blocks in so this site's availability
+reflects bookings made elsewhere; **export** serves this site's reservations as a `.ics` feed so
+Airbnb/Vrbo can do the same in reverse. A conflict is flagged (and optionally emailed) whenever the
+two sides still disagree.
+
+1. **Apply pending migrations** (adds `double_booking_conflicts` and `settings.export_token`, among
+   others accumulated since Phase 3):
+   ```bash
+   netlify database migrations apply
+   ```
+2. **Import**: `/admin` → iCal tab → paste an Airbnb and/or Vrbo calendar URL (each platform's
+   listing → Calendar → Sync calendars → Export). Save, then click **Sync now**. Successful/failed
+   pulls per source show inline. It also runs automatically on save and every 30 minutes
+   (`netlify/functions/ical-sync.mts`).
+3. **Export**: same tab, further down — an **Export feed URL** is shown (generated automatically the
+   first time this tab loads). Copy it into Airbnb's and Vrbo's calendar **import** field (the
+   reverse of step 2). **Regenerate URL** invalidates the old one if it ever leaks — you'd need to
+   re-paste the new one on both platforms.
+4. **See a conflict get flagged**: book overlapping dates on the site and in an externally-synced
+   calendar (or trigger the rarer Stripe-race path by cancelling/rebooking a reservation right as its
+   payment confirms), then check the **Conflicts** tab. An open conflict shows its source (Airbnb /
+   Vrbo / Payment race), the overlapping dates, and — if it's tied to a live reservation — a
+   **Cancel & refund reservation** button (auto-marks the conflict resolved); otherwise just **Mark
+   resolved**.
+5. **Optional — email alerts**: without `RESEND_API_KEY`/`NOTIFICATION_FROM_EMAIL` set (see "Later
+   phases" below), flagging a conflict is silent except for the Conflicts tab and a log line. Set
+   both to also get emailed at the address(es) configured in the iCal tab's notification field.
+
 ## First production deploy
 
 ```bash
@@ -253,10 +301,9 @@ out of `netlify.toml` and any tracked `.env`.
 
 - **Stripe (Phase 4 + 6):** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and
   `VITE_STRIPE_PUBLISHABLE_KEY` — see the Phase 4 and Phase 6 sections above.
-- **iCal (Phase 5):** your Airbnb and Vrbo calendar export URLs (stored in the `settings` table,
-  not env vars), and you'll paste our exported `/calendar.ics` URL into Airbnb + Vrbo. Sync runs
-  on save, on demand via "Sync now" in the iCal admin tab, and every 30 minutes via a scheduled
-  function (`netlify/functions/ical-sync.mts`).
+- **iCal (Phase 5):** no env vars — your Airbnb/Vrbo calendar URLs and the generated export feed
+  token live in the `settings` table instead, set from the iCal admin tab. See Phase 5 above for the
+  local walkthrough.
 - **Email notifications (double-booking warnings):** `RESEND_API_KEY` (from resend.com) and
   `NOTIFICATION_FROM_EMAIL` (a Resend-verified sending address). Fires when a synced Airbnb/Vrbo
   block overlaps a reservation already active on the site, or when a Stripe payment confirms into
@@ -298,8 +345,15 @@ by this change. Please run through the "Admin panel" steps above once your local
 normally — if you hit the same pglite abort, that's worth its own investigation (possibly a Node
 version incompatibility, since this was tried on Node 24).
 
-Next up: **Phase 5 — iCal sync** (the only remaining phase from the original plan), then Phase 7
-(go live).
+Phase 5 (iCal sync, both directions) and the double-booking conflict-resolution tool are **built**
+but not yet run through end-to-end locally by anyone — please work through the new "Phase 5" section
+above once your local DB is up (see the pglite note just above). The admin Bookings-tab calendar view
+(`BookingsCalendar.tsx`) was checked in isolation with mock reservation data in a real browser
+(Playwright screenshots): cell sizing/name truncation against the rounded corners and the
+hover-highlight-whole-reservation behavior across the grid gap both confirmed working — but it
+hasn't yet been exercised against real reservations end-to-end.
+
+Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First production deploy" above.
 
 ---
 
@@ -323,19 +377,16 @@ Next up: **Phase 5 — iCal sync** (the only remaining phase from the original p
 - **Guest email follow-up with receipt** — nothing currently emails the guest anything. After
   `stripe-webhook.mts` confirms a reservation, it should trigger a confirmation email with a receipt
   (dates, amount charged, cabin details) — probably via Stripe's own receipt emails as a starting
-  point, or a dedicated transactional email service if more control over formatting is wanted. No
-  email provider is wired up in this project yet (see "Later phases" env vars above — this'll need its
-  own).
+  point, or reusing the Resend integration `lib/mailer.ts` already has wired up for the double-booking
+  alert (see "Later phases" env vars above), just with a new template/trigger rather than a whole new
+  provider to choose and set up.
 
-- **Admin email notifications** — nothing currently notifies you of anything happening on the site;
-  you'd only find out by checking `/admin` or the function logs directly. Worth alerting on:
-  - a new booking coming in through the site,
-  - server-side issues (e.g. an unhandled function error — ties into the stack-trace item below,
-    since right now those errors only ever reach a log line, never a person),
-  - a detected double-booking / stuck payment (the exclusion-violation race already logged as
-    `CRITICAL` in `stripe-webhook.mts` — see below — currently has no one reading those logs).
-  Same open question as the guest receipt: needs an email (or similar) provider chosen and wired up
-  first.
+- **Admin email notification on new bookings** — the double-booking conflict alert
+  (`lib/mailer.ts`'s `notifyDoubleBooking`, see Phase 5 above) is the only email currently wired up.
+  Nothing notifies you when an ordinary new booking comes in, or of server-side issues (e.g. an
+  unhandled function error — ties into the stack-trace item below, since right now those errors only
+  ever reach a log line, never a person) — you'd only find out by checking `/admin` or the function
+  logs directly. Same Resend integration, just a new trigger.
 
 - **A spot for guests to leave a review** — nothing in the booking/confirmation flow prompts a guest
   for a review after their stay. Could be as simple as a "how was your stay?" link in the post-stay
@@ -365,28 +416,11 @@ Next up: **Phase 5 — iCal sync** (the only remaining phase from the original p
   (timestamp, and ideally a short reference/request id that shows up in the function logs too, so you
   can find the matching error without guessing).
 
-- **iCal export isn't built yet** — the *import* half of Phase 5 is done: `lib/icalSync.ts` pulls
-  the Airbnb/Vrbo `.ics` URLs into `external_blocks` on save, on demand ("Sync now" in the admin
-  iCal tab), and every 30 minutes via `netlify/functions/ical-sync.mts`, and
-  `hasExternalBlockOverlap` in `lib/availability.ts` now actually sees real data. What's still
-  missing is the other direction: an exported `/calendar.ics` feed of our own confirmed/held
-  reservations for Airbnb/Vrbo to import back. Without it, a booking made on this site can still get
-  double-booked *on Airbnb/Vrbo* (they have no way to know about it until this feed exists) — that
-  direction is only ever caught after the fact by the double-booking mailer below, not prevented.
-
 - **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
   If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as
   its Stripe payment completes, and someone else books those same dates first, the webhook's
   confirm-update hits the DB's overlap constraint and can't go through. The guest has been charged
-  with no confirmed reservation. This now sends an email via `lib/mailer.ts`'s `notifyDoubleBooking`
-  (same path the iCal sync uses for an external-block conflict), so it's no longer silent — but
-  there's still no automatic refund or in-admin resolution; see the reconciliation tool below.
-
-- **No admin-facing tool to resolve a detected double-booking** — both double-booking triggers
-  (iCal sync finding an external block that overlaps an active reservation, and the Stripe race
-  above) currently only send an email (`lib/mailer.ts`'s `notifyDoubleBooking`) with the reservation
-  id and dates in the message body — there's no view in `/admin` that lists open conflicts or lets
-  you act on one (cancel/refund the site reservation, mark it as manually resolved, etc.). Today
-  that has to happen by reading the email/function logs and using the existing Bookings tab and
-  Stripe dashboard by hand. Worth a dedicated admin view once double-bookings start happening often
-  enough that email-hunting isn't fast enough.
+  with no confirmed reservation. This flags a `double_booking_conflicts` row and emails via
+  `lib/mailer.ts`'s `notifyDoubleBooking` (same path the iCal sync uses for an external-block
+  conflict), and an admin can now cancel & refund it directly from the Conflicts tab (see Phase 5
+  above) instead of only reading logs.
