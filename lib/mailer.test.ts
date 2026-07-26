@@ -84,6 +84,25 @@ describe("sendEmail", () => {
 		expect(body.html).toBe("<p>Body</p>");
 	});
 
+	it("includes reply_to in the body when provided, omits it otherwise", async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendEmail({
+			to: ["admin@example.com"],
+			subject: "Subject",
+			text: "Body",
+			replyTo: ["owner@example.com"],
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.reply_to).toEqual(["owner@example.com"]);
+
+		await sendEmail({ to: ["admin@example.com"], subject: "Subject", text: "Body", replyTo: [] });
+		const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body as string);
+		expect(secondBody.reply_to).toBeUndefined();
+	});
+
 	it("throws when the Resend API responds with a non-2xx status", async () => {
 		global.fetch = vi
 			.fn()
@@ -155,18 +174,20 @@ describe("notifyBookingConfirmed", () => {
 		global.fetch = fetchMock as unknown as typeof fetch;
 
 		await notifyBookingConfirmed({
+			reservationId: 42,
 			guestName: "Jane Doe",
 			guestEmail: "jane@example.com",
 			checkIn: "2026-08-01",
 			checkOut: "2026-08-05",
 			guests: 2,
 			amountTotal: 12_345,
+			idPhotoUrl: "https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42",
 		});
 
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("sends to the configured recipients with the booking details in the body", async () => {
+	it("sends to the configured recipients with the booking details, including the reservation ID and a photo ID link, in the body", async () => {
 		vi.mocked(getSettings).mockResolvedValue({
 			notificationEmails: "admin@example.com",
 		} as never);
@@ -176,18 +197,52 @@ describe("notifyBookingConfirmed", () => {
 		global.fetch = fetchMock as unknown as typeof fetch;
 
 		await notifyBookingConfirmed({
+			reservationId: 42,
 			guestName: "Jane Doe",
 			guestEmail: "jane@example.com",
 			checkIn: "2026-08-01",
 			checkOut: "2026-08-05",
 			guests: 2,
 			amountTotal: 12_345,
+			idPhotoUrl: "https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
 		expect(body.to).toEqual(["admin@example.com"]);
 		expect(body.text).toContain("Jane Doe");
 		expect(body.text).toContain("$123.45");
+		expect(body.text).toContain("#42");
+		expect(body.text).toContain("https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42");
+		expect(body.html).toContain("Jane Doe");
+		expect(body.html).toContain("$123.45");
+		expect(body.html).toContain("#42");
+		expect(body.html).toContain('href="https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42"');
+	});
+
+	it("shows 'Not uploaded' instead of a link when no photo ID was uploaded", async () => {
+		vi.mocked(getSettings).mockResolvedValue({
+			notificationEmails: "admin@example.com",
+		} as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await notifyBookingConfirmed({
+			reservationId: 42,
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			guests: 2,
+			amountTotal: 12_345,
+			idPhotoUrl: null,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.text).toContain("Photo ID: Not uploaded");
+		expect(body.html).toContain("Not uploaded");
+		expect(body.html).not.toContain("<a href");
 	});
 
 	it("swallows and logs a failed send instead of throwing", async () => {
@@ -201,12 +256,14 @@ describe("notifyBookingConfirmed", () => {
 
 		await expect(
 			notifyBookingConfirmed({
+				reservationId: 42,
 				guestName: "Jane Doe",
 				guestEmail: "jane@example.com",
 				checkIn: "2026-08-01",
 				checkOut: "2026-08-05",
 				guests: 2,
 				amountTotal: 12_345,
+				idPhotoUrl: null,
 			})
 		).resolves.toBeUndefined();
 
@@ -221,6 +278,53 @@ describe("sendBookingConfirmationEmail", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		global.fetch = originalFetch;
+		vi.mocked(getSettings).mockReset();
+	});
+
+	it("sets reply_to to the configured notification emails, so a guest reply reaches the admin instead of the send-only from-address", async () => {
+		vi.mocked(getSettings).mockResolvedValue({
+			notificationEmails: "admin@example.com, owner@example.com",
+		} as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendBookingConfirmationEmail({
+			reservationId: 42,
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			guests: 2,
+			amountTotal: 12_345,
+			idPhotoUrl: null,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.reply_to).toEqual(["admin@example.com", "owner@example.com"]);
+	});
+
+	it("omits reply_to when no notification emails are configured", async () => {
+		vi.mocked(getSettings).mockResolvedValue({ notificationEmails: null } as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendBookingConfirmationEmail({
+			reservationId: 42,
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			guests: 2,
+			amountTotal: 12_345,
+			idPhotoUrl: null,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.reply_to).toBeUndefined();
 	});
 
 	it("sends to the guest's own email with the booking details in the body", async () => {
@@ -230,12 +334,14 @@ describe("sendBookingConfirmationEmail", () => {
 		global.fetch = fetchMock as unknown as typeof fetch;
 
 		await sendBookingConfirmationEmail({
+			reservationId: 42,
 			guestName: "Jane Doe",
 			guestEmail: "jane@example.com",
 			checkIn: "2026-08-01",
 			checkOut: "2026-08-05",
 			guests: 2,
 			amountTotal: 12_345,
+			idPhotoUrl: null,
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -255,12 +361,14 @@ describe("sendBookingConfirmationEmail", () => {
 		global.fetch = fetchMock as unknown as typeof fetch;
 
 		await sendBookingConfirmationEmail({
+			reservationId: 42,
 			guestName: "<script>alert(1)</script>",
 			guestEmail: "jane@example.com",
 			checkIn: "2026-08-01",
 			checkOut: "2026-08-05",
 			guests: 2,
 			amountTotal: 12_345,
+			idPhotoUrl: null,
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -276,12 +384,14 @@ describe("sendBookingConfirmationEmail", () => {
 
 		await expect(
 			sendBookingConfirmationEmail({
+				reservationId: 42,
 				guestName: "Jane Doe",
 				guestEmail: "jane@example.com",
 				checkIn: "2026-08-01",
 				checkOut: "2026-08-05",
 				guests: 2,
 				amountTotal: 12_345,
+				idPhotoUrl: null,
 			})
 		).resolves.toBeUndefined();
 

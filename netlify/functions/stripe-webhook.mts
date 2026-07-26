@@ -81,12 +81,22 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 				const reservation = confirmed[0];
 				if (reservation) {
 					const details = {
+						reservationId: reservation.id,
 						guestName: reservation.guestName,
 						guestEmail: reservation.guestEmail,
 						checkIn: reservation.checkIn,
 						checkOut: reservation.checkOut,
 						guests: reservation.guests,
 						amountTotal: reservation.amountTotal,
+						// Admin-gated (see admin-id-photo.mts) — safe to include as a
+						// plain link since only an authenticated admin session can
+						// actually load it. Null when the guest never got prompted to
+						// upload one (shouldn't happen via the normal booking flow,
+						// which requires it before payment, but isn't guaranteed for
+						// every historical row).
+						idPhotoUrl: reservation.idPhotoBlobKey
+							? `${new URL(req.url).origin}/api/admin-id-photo?reservationId=${reservation.id}`
+							: null,
 					};
 					await notifyBookingConfirmed(details);
 					await sendBookingConfirmationEmail(details);

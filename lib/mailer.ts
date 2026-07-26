@@ -17,18 +17,28 @@ export const parseNotificationEmails = (raw: string | null | undefined): string[
 		.map((email) => email.trim())
 		.filter((email) => email.length > 0);
 
-// `html` is optional — the admin alert emails below stay plain text (they're
-// functional ops notifications, not a guest-facing surface), while
-// sendBookingConfirmationEmail supplies one. `text` is always sent alongside
-// it as the fallback body for clients that don't render HTML.
-export type SendEmailInput = { to: string[]; subject: string; text: string; html?: string };
+// `html` is optional — notifyDoubleBooking below stays plain text (a rarer,
+// already-abnormal alert; no details worth a table for). `text` is always
+// sent alongside `html` as the fallback body for clients that don't render it.
+// `replyTo` matters because NOTIFICATION_FROM_EMAIL (e.g.
+// booking@cabinbetweenrivers.com) is a send-only address with no real inbox
+// behind it — Resend is send-only too — so without this, a guest hitting
+// "reply" would go nowhere. sendBookingConfirmationEmail below sets it to the
+// admin's own configured notificationEmails so replies land there instead.
+export type SendEmailInput = {
+	to: string[];
+	subject: string;
+	text: string;
+	html?: string;
+	replyTo?: string[];
+};
 
 // Minimal Resend REST call — no SDK, matching this codebase's lean-dependency
 // style (this is the only third-party HTTP call in the app made via plain
 // fetch rather than an SDK; see lib/stripe.ts for the SDK-based alternative).
 // Throws on a non-2xx response; notifyDoubleBooking below is the only caller
 // and is responsible for never letting that propagate to ITS caller.
-export const sendEmail = async ({ to, subject, text, html }: SendEmailInput): Promise<void> => {
+export const sendEmail = async ({ to, subject, text, html, replyTo }: SendEmailInput): Promise<void> => {
 	const apiKey = getEnv("RESEND_API_KEY");
 	const from = getEnv("NOTIFICATION_FROM_EMAIL");
 
@@ -38,7 +48,14 @@ export const sendEmail = async ({ to, subject, text, html }: SendEmailInput): Pr
 			Authorization: `Bearer ${apiKey}`,
 			"content-type": "application/json",
 		},
-		body: JSON.stringify({ from, to, subject, text, ...(html ? { html } : {}) }),
+		body: JSON.stringify({
+			from,
+			to,
+			subject,
+			text,
+			...(html ? { html } : {}),
+			...(replyTo && replyTo.length > 0 ? { reply_to: replyTo } : {}),
+		}),
 	});
 
 	if (!response.ok) {
@@ -47,9 +64,9 @@ export const sendEmail = async ({ to, subject, text, html }: SendEmailInput): Pr
 	}
 };
 
-// Guest-facing email bodies interpolate guestName (free-text guest input —
-// see src/features/booking/schema.ts) into HTML, so it needs escaping same as
-// lib/terms.ts's admin-authored content does.
+// Every HTML email body interpolates guest-supplied free text (guestName —
+// see src/features/booking/schema.ts) or reservation data, so it needs
+// escaping same as lib/terms.ts's admin-authored content does.
 const escapeHtml = (value: string): string =>
 	value
 		.replace(/&/g, "&amp;")
@@ -57,55 +74,10 @@ const escapeHtml = (value: string): string =>
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;");
 
-export type BookingConfirmedDetails = {
-	guestName: string;
-	guestEmail: string;
-	checkIn: string;
-	checkOut: string;
-	guests: number;
-	// Cents, matching reservations.amountTotal (see db/schema.ts).
-	amountTotal: number;
-};
-
-// Never throws — same contract as notifyDoubleBooking below, since a failed
-// or unconfigured notification must never break the Stripe webhook that just
-// confirmed the payment.
-export const notifyBookingConfirmed = async (details: BookingConfirmedDetails): Promise<void> => {
-	try {
-		const settings = await getSettings();
-		const recipients = parseNotificationEmails(settings?.notificationEmails);
-		if (recipients.length === 0) return;
-
-		const subject = `New booking: ${details.checkIn} to ${details.checkOut}`;
-		const text = [
-			"A new booking was just confirmed.",
-			`Guest: ${details.guestName} (${details.guestEmail})`,
-			`Dates: ${details.checkIn} to ${details.checkOut}`,
-			`Guests: ${details.guests}`,
-			`Amount paid: $${(details.amountTotal / 100).toFixed(2)}`,
-			"View it in /admin.",
-		].join("\n");
-
-		await sendEmail({ to: recipients, subject, text });
-	} catch (e) {
-		console.error("notifyBookingConfirmed: failed to send notification", e);
-	}
-};
-
-// Table-based layout with every style inline — email clients (Outlook desktop
-// most of all) don't reliably support flexbox/grid or a <style> block, so this
-// avoids both rather than degrading gracefully in just some of them.
-const bookingConfirmationHtml = (details: BookingConfirmedDetails): string => {
-	const checkIn = dayjs(details.checkIn).format("MMM D, YYYY");
-	const checkOut = dayjs(details.checkOut).format("MMM D, YYYY");
-	const amount = (details.amountTotal / 100).toFixed(2);
-	const row = (label: string, value: string, withDivider = false): string => `
-		<tr>
-			<td style="padding:6px 0;color:#666666;${withDivider ? "border-top:1px solid #eaeaea;" : ""}">${label}</td>
-			<td style="padding:6px 0;text-align:right;font-weight:600;color:#333333;${withDivider ? "border-top:1px solid #eaeaea;" : ""}">${value}</td>
-		</tr>`;
-
-	return `<!doctype html>
+// Shared outer card shell for every HTML email — table-based layout with
+// every style inline, since email clients (Outlook desktop most of all)
+// don't reliably support flexbox/grid or a <style> block.
+const emailShell = (bodyHtml: string): string => `<!doctype html>
 <html>
 	<body style="margin:0;padding:0;background-color:#f5f8f1;font-family:Georgia,'Times New Roman',serif;">
 		<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f8f1;padding:32px 16px;">
@@ -119,18 +91,7 @@ const bookingConfirmationHtml = (details: BookingConfirmedDetails): string => {
 						</tr>
 						<tr>
 							<td style="padding:32px;">
-								<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">You're booked!</p>
-								<p style="margin:0 0 24px;font-size:15px;color:#333333;line-height:1.5;">
-									Hi ${escapeHtml(details.guestName)}, your reservation is confirmed. Here are the details:
-								</p>
-								<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;">
-									${row("Dates", `${checkIn} &ndash; ${checkOut}`)}
-									${row("Guests", String(details.guests))}
-									${row("Amount paid", `$${amount}`, true)}
-								</table>
-								<p style="margin:24px 0 0;font-size:15px;color:#333333;line-height:1.5;">
-									We look forward to hosting you.
-								</p>
+								${bodyHtml}
 							</td>
 						</tr>
 					</table>
@@ -139,17 +100,121 @@ const bookingConfirmationHtml = (details: BookingConfirmedDetails): string => {
 		</table>
 	</body>
 </html>`;
+
+// One label/value row in a details table — `withDivider` marks the last row
+// (e.g. "Amount paid") off from the ones above it.
+const emailDetailRow = (label: string, value: string, withDivider = false): string => `
+	<tr>
+		<td style="padding:6px 0;color:#666666;${withDivider ? "border-top:1px solid #eaeaea;" : ""}">${label}</td>
+		<td style="padding:6px 0;text-align:right;font-weight:600;color:#333333;${withDivider ? "border-top:1px solid #eaeaea;" : ""}">${value}</td>
+	</tr>`;
+
+export type BookingConfirmedDetails = {
+	reservationId: number;
+	guestName: string;
+	guestEmail: string;
+	checkIn: string;
+	checkOut: string;
+	guests: number;
+	// Cents, matching reservations.amountTotal (see db/schema.ts).
+	amountTotal: number;
+	// Absolute, already admin-gated (see admin-id-photo.mts) — null if the
+	// guest never uploaded one. Only relevant to the admin notification below;
+	// the guest's own confirmation email has no reason to reference it.
+	idPhotoUrl: string | null;
+};
+
+const adminBookingConfirmedHtml = (details: BookingConfirmedDetails): string => {
+	const checkIn = dayjs(details.checkIn).format("MMM D, YYYY");
+	const checkOut = dayjs(details.checkOut).format("MMM D, YYYY");
+	const amount = (details.amountTotal / 100).toFixed(2);
+	const idPhoto = details.idPhotoUrl
+		? `<a href="${escapeHtml(details.idPhotoUrl)}" style="color:#5c871f;">View photo ID</a>`
+		: "Not uploaded";
+
+	return emailShell(`
+		<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">New booking confirmed</p>
+		<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;">
+			${emailDetailRow("Reservation", `#${details.reservationId}`)}
+			${emailDetailRow("Guest", `${escapeHtml(details.guestName)} (${escapeHtml(details.guestEmail)})`)}
+			${emailDetailRow("Dates", `${checkIn} &ndash; ${checkOut}`)}
+			${emailDetailRow("Guests", String(details.guests))}
+			${emailDetailRow("Photo ID", idPhoto)}
+			${emailDetailRow("Amount paid", `$${amount}`, true)}
+		</table>
+		<p style="margin:24px 0 0;font-size:15px;color:#333333;line-height:1.5;">
+			View it in /admin.
+		</p>
+	`);
+};
+
+// Never throws — same contract as notifyDoubleBooking below, since a failed
+// or unconfigured notification must never break the Stripe webhook that just
+// confirmed the payment.
+export const notifyBookingConfirmed = async (details: BookingConfirmedDetails): Promise<void> => {
+	try {
+		const settings = await getSettings();
+		const recipients = parseNotificationEmails(settings?.notificationEmails);
+		if (recipients.length === 0) return;
+
+		const subject = `New booking #${details.reservationId}: ${details.checkIn} to ${details.checkOut}`;
+		const text = [
+			"A new booking was just confirmed.",
+			`Reservation ID: #${details.reservationId}`,
+			`Guest: ${details.guestName} (${details.guestEmail})`,
+			`Dates: ${details.checkIn} to ${details.checkOut}`,
+			`Guests: ${details.guests}`,
+			`Photo ID: ${details.idPhotoUrl ?? "Not uploaded"}`,
+			`Amount paid: $${(details.amountTotal / 100).toFixed(2)}`,
+			"View it in /admin.",
+		].join("\n");
+
+		await sendEmail({
+			to: recipients,
+			subject,
+			text,
+			html: adminBookingConfirmedHtml(details),
+		});
+	} catch (e) {
+		console.error("notifyBookingConfirmed: failed to send notification", e);
+	}
+};
+
+const bookingConfirmationHtml = (details: BookingConfirmedDetails): string => {
+	const checkIn = dayjs(details.checkIn).format("MMM D, YYYY");
+	const checkOut = dayjs(details.checkOut).format("MMM D, YYYY");
+	const amount = (details.amountTotal / 100).toFixed(2);
+
+	return emailShell(`
+		<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">You're booked!</p>
+		<p style="margin:0 0 24px;font-size:15px;color:#333333;line-height:1.5;">
+			Hi ${escapeHtml(details.guestName)}, your reservation is confirmed. Here are the details:
+		</p>
+		<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;">
+			${emailDetailRow("Dates", `${checkIn} &ndash; ${checkOut}`)}
+			${emailDetailRow("Guests", String(details.guests))}
+			${emailDetailRow("Amount paid", `$${amount}`, true)}
+		</table>
+		<p style="margin:24px 0 0;font-size:15px;color:#333333;line-height:1.5;">
+			We look forward to hosting you.
+		</p>
+	`);
 };
 
 // Sent straight to the guest — unlike notifyBookingConfirmed above, this
-// doesn't depend on settings.notificationEmails, since every reservation
-// already has its own guestEmail. Never throws — same contract as
-// notifyBookingConfirmed: a failed send must not break the Stripe webhook
-// that already confirmed the payment.
+// doesn't depend on settings.notificationEmails to pick a recipient (every
+// reservation already has its own guestEmail), but it does read it for
+// replyTo: NOTIFICATION_FROM_EMAIL is a send-only address, so without this a
+// guest hitting "reply" would go nowhere instead of back to the admin. Never
+// throws — same contract as notifyBookingConfirmed: a failed send must not
+// break the Stripe webhook that already confirmed the payment.
 export const sendBookingConfirmationEmail = async (
 	details: BookingConfirmedDetails
 ): Promise<void> => {
 	try {
+		const settings = await getSettings();
+		const replyTo = parseNotificationEmails(settings?.notificationEmails);
+
 		const subject = "Your Cabin Between Rivers reservation is confirmed";
 		const text = [
 			`Hi ${details.guestName},`,
@@ -167,6 +232,7 @@ export const sendBookingConfirmationEmail = async (
 			subject,
 			text,
 			html: bookingConfirmationHtml(details),
+			replyTo,
 		});
 	} catch (e) {
 		console.error("sendBookingConfirmationEmail: failed to send guest confirmation", e);
