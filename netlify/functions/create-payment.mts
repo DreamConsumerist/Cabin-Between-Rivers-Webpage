@@ -7,13 +7,15 @@ const bodySchema = z.object({ reservationId: z.number().int().positive() });
 
 // Compact date range for the Stripe statement descriptor suffix — see the
 // comment at its call site for the character budget this has to fit in.
-// Same-month stays use "MMDD-DD" (7 chars); cross-month stays use
-// "MMDD-MMDD" (9 chars) — both fit within the 10-char suffix budget.
+// Leading "D" (for "dates") is required — Stripe rejects a suffix with no
+// Latin character, and MMDD-DD/MMDD-MMDD are otherwise all digits/dashes.
+// Same-month stays use "DMMDD-DD" (8 chars); cross-month stays use
+// "DMMDD-MMDD" (10 chars) — both fit within the 10-char suffix budget.
 const statementDateRange = (checkIn: string, checkOut: string): string => {
 	const [, inMonth, inDay] = checkIn.split("-");
 	const [, outMonth, outDay] = checkOut.split("-");
-	if (inMonth === outMonth) return `${inMonth}${inDay}-${outDay}`;
-	return `${inMonth}${inDay}-${outMonth}${outDay}`;
+	if (inMonth === outMonth) return `D${inMonth}${inDay}-${outDay}`;
+	return `D${inMonth}${inDay}-${outMonth}${outDay}`;
 };
 
 // POST /api/create-payment
