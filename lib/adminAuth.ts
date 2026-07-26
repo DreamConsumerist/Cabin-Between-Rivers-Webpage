@@ -75,3 +75,15 @@ export const isAdminAuthenticated = (req: Request): boolean => {
 // handler, or null when the caller is authenticated.
 export const requireAdmin = (req: Request): Response | null =>
 	isAdminAuthenticated(req) ? null : error("Unauthorized", 401);
+
+// Guard for admin-only endpoints that get opened via direct browser
+// navigation (e.g. the ID photo link in booking notification emails) rather
+// than fetched by the already-gated SPA. A bare 401 JSON body would just
+// render as text in the tab, so send the browser to the login page instead,
+// with a returnTo so it lands back here once signed in.
+export const requireAdminOrRedirect = (req: Request): Response | null => {
+	if (isAdminAuthenticated(req)) return null;
+	const url = new URL(req.url);
+	const returnTo = encodeURIComponent(`${url.pathname}${url.search}`);
+	return Response.redirect(`${url.origin}/admin?returnTo=${returnTo}`, 302);
+};

@@ -451,39 +451,6 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   feature built into the site itself — worth deciding which before building either the email or the
   page.
 
-- **Admin panel / booking flow need clearer error messages for non-technical operators** — day-to-day
-  site management (uploading photos, checking bookings) is being handed off to people who aren't
-  going to read a stack trace or a network tab. Right now several failure paths are either silent or
-  too vague to relay: the About page's gallery preload swallows fetch errors entirely by design (see
-  `src/routes/about.ts` — a bad *preload* shouldn't break navigation, though `useGalleryPhotos` itself
-  does show "Couldn't load the gallery." on the page itself), the admin dashboard's error states are
-  generic one-line strings with nothing to reference, and a backend failure (like the stack-trace
-  issue above) just looks like "the page is broken" with no detail. Once the operator isn't you,
-  "it's broken" isn't actionable — needs a consistent pattern across the admin panel and booking flow:
-  a plain-language message (what failed) plus something concrete to relay when reporting it
-  (timestamp, and ideally a short reference/request id that shows up in the function logs too, so you
-  can find the matching error without guessing).
-
-- **No reconciliation if the Stripe webhook never arrives at all** — `netlify/functions/stripe-webhook.mts`
-  is the *only* path that ever flips a reservation to `confirmed`; `reservation-status.mts` (polled by
-  `BookingConfirmation.tsx` every 2s while `status === "pending"`, see `hooks.ts`) only ever reads the
-  DB, never checks with Stripe directly. If the webhook is delayed or never lands — endpoint
-  misconfigured, Stripe outage, a code exception unrelated to the handled overlap case — the guest sees
-  "Payment not completed" once `HOLD_MINUTES` (15 min) lapses and `expire-holds.mts` frees the dates,
-  despite having actually paid. Nobody finds out either, since none of the existing error paths
-  (`flagDoubleBooking`, etc.) run if the webhook handler itself never executes — only a manual
-  cross-check against the Stripe dashboard would catch it. Confirmed via the Stripe API on 2026-07-25
-  that zero webhook endpoints are currently registered at all (test or live), so this isn't hypothetical
-  — it's the guaranteed outcome of any transaction today, though harmless while still on Stripe test-mode
-  keys (test-mode Checkout rejects real cards outright, so no real guest can currently complete a real
-  payment through it). Needs, before switching to live Stripe keys: (1) an actual webhook endpoint
-  registered in the Stripe dashboard pointed at the production URL, for both test and live mode
-  separately, and (2) a fallback that doesn't depend on the webhook alone — e.g. use the `sessionId`
-  already appended to the Stripe `return_url` in `create-payment.mts` (parsed by
-  `booking_.confirmation.ts`'s route but never actually read anywhere) to call
-  `stripe.checkout.sessions.retrieve` directly and self-heal a stuck-`pending` reservation whose Stripe
-  session actually completed.
-
 - **No rate limiting anywhere** — `netlify/functions/*.mts`. Nothing in the app or `netlify.toml` throttles
   requests per IP/session. Two concrete exposures: `create-booking.mts` has no cap on how many holds one
   caller can create, so a script could keep the entire calendar perpetually held (each hold lasts up to
@@ -500,22 +467,3 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   anything technical. If this needs real teeth, options are a separate deposit `PaymentIntent` with
   `capture_method: "manual"` (authorize at booking, capture only if needed, release otherwise) or a
   flat additional deposit charged and refunded automatically after checkout.
-
-- **Uploaded photo IDs are retained forever** — `reservations.idPhotoBlobKey` (see
-  `netlify/functions/upload-id-photo.mts`) is only ever cleared when a guest re-uploads and replaces
-  one (a lost race). Nothing deletes the blob when a reservation is cancelled (`cancel-reservation.mts`,
-  `admin-cancel-reservation.mts`, `cancel-my-reservation.mts` — none of them touch Netlify Blobs) or
-  expires (`expire-holds.mts`), and there's no scheduled sweep for old ones either. Sensitive PII (a
-  government photo ID) sitting in storage indefinitely — even for a hold that never got confirmed — is a
-  data-minimization/compliance concern regardless of the admin-gating already in place on read access.
-  Wants a retention policy: delete on cancel/expire, and/or an auto-purge job for anything past some
-  age (e.g. well after the stay's checkout date).
-
-- **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
-  If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as
-  its Stripe payment completes, and someone else books those same dates first, the webhook's
-  confirm-update hits the DB's overlap constraint and can't go through. The guest has been charged
-  with no confirmed reservation. This flags a `double_booking_conflicts` row and emails via
-  `lib/mailer.ts`'s `notifyDoubleBooking` (same path the iCal sync uses for an external-block
-  conflict), and an admin can now cancel & refund it directly from the Conflicts tab (see Phase 5
-  above) instead of only reading logs.

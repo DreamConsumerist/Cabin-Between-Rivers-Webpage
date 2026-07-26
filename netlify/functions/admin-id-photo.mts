@@ -1,13 +1,17 @@
 import { error, requireMethod, withErrorHandling } from "../../lib/http";
-import { requireAdmin } from "../../lib/adminAuth";
+import { requireAdminOrRedirect } from "../../lib/adminAuth";
 import { getReservationById } from "../../lib/availability";
 import { getIdPhotoBlob } from "../../lib/blobs";
 
 // GET /api/admin-id-photo?reservationId=<id> -> streams the guest's uploaded
 // photo ID. Admin-gated — this is sensitive PII, unlike the public
 // gallery-image.mts. Never cached (private, no-store) for the same reason.
+// Unlike other admin endpoints, this one is opened by direct browser
+// navigation (email links, BookingsList's <a href>) rather than fetched by
+// the SPA, so an unauthenticated visitor is redirected to the login page
+// instead of getting a bare 401 JSON body.
 export default withErrorHandling("admin-id-photo", async (req, _context) => {
-	const unauthorized = requireAdmin(req);
+	const unauthorized = requireAdminOrRedirect(req);
 	if (unauthorized) return unauthorized;
 
 	const notAllowed = requireMethod(req, "GET");

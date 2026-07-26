@@ -68,19 +68,19 @@ export default withErrorHandling("admin-cancel-reservation", async (req, _contex
 		// The refund (if any) already went through at this point — this is a
 		// genuine inconsistency (money moved, status didn't) that needs a human,
 		// not a silent retry.
-		console.error(
-			`admin-cancel-reservation: CRITICAL — reservation ${reservation.id} was refunded=${refunded} but the status update failed; fix the status manually`,
-			e
-		);
-		await reportCritical(
+		const ref = await reportCritical(
 			"Refund succeeded but reservation status update failed",
 			{ reservationId: reservation.id, refunded },
 			e
 		);
+		console.error(
+			`admin-cancel-reservation: CRITICAL [ref ${ref}] — reservation ${reservation.id} was refunded=${refunded} but the status update failed; fix the status manually`,
+			e
+		);
 		return error(
 			refunded
-				? "Refund succeeded but the reservation status could not be updated — fix its status manually."
-				: "Could not cancel the reservation.",
+				? `Refund succeeded but the reservation status could not be updated — fix its status manually. Reference: ${ref}`
+				: `Could not cancel the reservation. Reference: ${ref}`,
 			500
 		);
 	}

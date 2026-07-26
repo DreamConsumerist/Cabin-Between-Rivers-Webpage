@@ -64,8 +64,13 @@ const parseStackFrames = (stack: string): { filename: string; function: string; 
 
 type EventPayload = Record<string, unknown>;
 
-const baseEvent = (level: SentryLevel, tags: Record<string, string>): EventPayload => ({
-	event_id: randomUUID().replace(/-/g, ""),
+// Generated up front (rather than inside baseEvent) so callers can hand the
+// same id back to whoever hit the endpoint — a human-relayable reference that
+// also happens to be exactly what Sentry's event search expects.
+const newEventId = (): string => randomUUID().replace(/-/g, "");
+
+const baseEvent = (level: SentryLevel, tags: Record<string, string>, eventId: string): EventPayload => ({
+	event_id: eventId,
 	timestamp: new Date().toISOString(),
 	platform: "node",
 	level,
@@ -73,8 +78,8 @@ const baseEvent = (level: SentryLevel, tags: Record<string, string>): EventPaylo
 	tags,
 });
 
-const buildExceptionEvent = (err: Error, level: SentryLevel, tags: Record<string, string>, extra?: Record<string, unknown>): EventPayload => ({
-	...baseEvent(level, tags),
+const buildExceptionEvent = (err: Error, level: SentryLevel, tags: Record<string, string>, eventId: string, extra?: Record<string, unknown>): EventPayload => ({
+	...baseEvent(level, tags, eventId),
 	exception: {
 		values: [
 			{
@@ -87,8 +92,8 @@ const buildExceptionEvent = (err: Error, level: SentryLevel, tags: Record<string
 	extra: { ...extra, rawStack: err.stack ?? null },
 });
 
-const buildMessageEvent = (message: string, level: SentryLevel, tags: Record<string, string>, extra?: Record<string, unknown>): EventPayload => ({
-	...baseEvent(level, tags),
+const buildMessageEvent = (message: string, level: SentryLevel, tags: Record<string, string>, eventId: string, extra?: Record<string, unknown>): EventPayload => ({
+	...baseEvent(level, tags, eventId),
 	message: { formatted: message },
 	extra,
 });
@@ -127,13 +132,19 @@ const send = async (event: EventPayload): Promise<void> => {
 // Catch-all for lib/http.ts's withErrorHandling/withScheduledErrorHandling —
 // anything that escaped a handler unhandled. `endpoint` tags the event so
 // Sentry groups/filters by function name instead of every 500 in one bucket.
-export const reportError = async (err: unknown, endpoint: string): Promise<void> => {
+// Returns the event id so the caller can surface it as a reference — to the
+// person who hit the error (in the response) and in its own server log line
+// — letting a vague "something went wrong" report be traced to one exact
+// Sentry event instead of guessed at.
+export const reportError = async (err: unknown, endpoint: string): Promise<string> => {
+	const eventId = newEventId();
 	const tags = { endpoint };
 	if (err instanceof Error) {
-		await send(buildExceptionEvent(err, "error", tags));
+		await send(buildExceptionEvent(err, "error", tags, eventId));
 	} else {
-		await send(buildMessageEvent(`Non-Error thrown in ${endpoint}: ${String(err)}`, "error", tags));
+		await send(buildMessageEvent(`Non-Error thrown in ${endpoint}: ${String(err)}`, "error", tags, eventId));
 	}
+	return eventId;
 };
 
 // For the explicit CRITICAL call sites (stripe-webhook.mts,
@@ -144,15 +155,20 @@ export const reportError = async (err: unknown, endpoint: string): Promise<void>
 // guestName/guestEmail/idPhotoBlobKey or a token. `err` is optional since a
 // couple of these sites are data-integrity guards with no caught exception to
 // attach (see cancel-my-reservation.mts's missing-stripePaymentIntentId case).
+// Also returns the event id (see reportError above) — the CRITICAL call
+// sites all return a "please contact us" / "fix this manually" message to a
+// guest or admin, and the id gives them something concrete to relay back.
 export const reportCritical = async (
 	message: string,
 	extra: Record<string, string | number | boolean | null>,
 	err?: unknown
-): Promise<void> => {
+): Promise<string> => {
+	const eventId = newEventId();
 	const tags = { critical: "true" };
 	if (err instanceof Error) {
-		await send(buildExceptionEvent(err, "fatal", tags, extra));
+		await send(buildExceptionEvent(err, "fatal", tags, eventId, extra));
 	} else {
-		await send(buildMessageEvent(message, "fatal", tags, extra));
+		await send(buildMessageEvent(message, "fatal", tags, eventId, extra));
 	}
+	return eventId;
 };

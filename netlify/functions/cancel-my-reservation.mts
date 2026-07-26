@@ -96,13 +96,13 @@ export default withErrorHandling("cancel-my-reservation", async (req, _context) 
 			// Confirmed reservations always have one (set by stripe-webhook.mts
 			// when it confirms) — this is a data-integrity guard, not a real
 			// path, so it doesn't need guest-friendly wording.
-			console.error(
-				`cancel-my-reservation: CRITICAL — reservation ${reservation.id} is confirmed with no stripePaymentIntentId`
-			);
-			await reportCritical("Confirmed reservation has no stripePaymentIntentId", {
+			const ref = await reportCritical("Confirmed reservation has no stripePaymentIntentId", {
 				reservationId: reservation.id,
 			});
-			return error("Could not process cancellation — please contact us directly.", 500);
+			console.error(
+				`cancel-my-reservation: CRITICAL [ref ${ref}] — reservation ${reservation.id} is confirmed with no stripePaymentIntentId`
+			);
+			return error(`Could not process cancellation — please contact us directly and mention reference ${ref}.`, 500);
 		}
 		try {
 			await refundPayment(reservation.stripePaymentIntentId);
@@ -116,13 +116,13 @@ export default withErrorHandling("cancel-my-reservation", async (req, _context) 
 			if (!cancelled) {
 				// Refund already went through — same "needs a human" reasoning as
 				// admin-cancel-reservation.mts's identical race.
-				console.error(
-					`cancel-my-reservation: CRITICAL — reservation ${reservation.id} was refunded but the status update failed; fix the status manually`
-				);
-				await reportCritical("Refund succeeded but reservation status update returned no row", {
+				const ref = await reportCritical("Refund succeeded but reservation status update returned no row", {
 					reservationId: reservation.id,
 				});
-				return error("Refund succeeded but cancellation failed — please contact us.", 500);
+				console.error(
+					`cancel-my-reservation: CRITICAL [ref ${ref}] — reservation ${reservation.id} was refunded but the status update failed; fix the status manually`
+				);
+				return error(`Refund succeeded but cancellation failed — please contact us and mention reference ${ref}.`, 500);
 			}
 
 			await sendCancellationEmail({
@@ -144,16 +144,16 @@ export default withErrorHandling("cancel-my-reservation", async (req, _context) 
 
 			return json({ cancelled: true });
 		} catch (e) {
-			console.error(
-				`cancel-my-reservation: CRITICAL — reservation ${reservation.id} was refunded but the status update threw; fix the status manually`,
-				e
-			);
-			await reportCritical(
+			const ref = await reportCritical(
 				"Refund succeeded but reservation status update threw",
 				{ reservationId: reservation.id },
 				e
 			);
-			return error("Refund succeeded but cancellation failed — please contact us.", 500);
+			console.error(
+				`cancel-my-reservation: CRITICAL [ref ${ref}] — reservation ${reservation.id} was refunded but the status update threw; fix the status manually`,
+				e
+			);
+			return error(`Refund succeeded but cancellation failed — please contact us and mention reference ${ref}.`, 500);
 		}
 	}
 

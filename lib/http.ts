@@ -21,15 +21,21 @@ export const error = (message: string, status = 400): Response =>
 // every 500. Doesn't interfere with a handler's own try/catch returning a
 // specific Response (e.g. a 409 on a booking conflict) — only catches what
 // escapes past that.
+//
+// The response includes the Sentry event id as a reference — otherwise every
+// unrelated 500 reads as the same unhelpful "Something went wrong" with
+// nothing to relay when reporting it. Logging the same id server-side (not
+// just inside the Sentry payload) means it's greppable in the Netlify
+// function log even without SENTRY_DSN configured.
 export const withErrorHandling =
 	(name: string, handler: (req: Request, context: Context) => Promise<Response>) =>
 	async (req: Request, context: Context): Promise<Response> => {
 		try {
 			return await handler(req, context);
 		} catch (e) {
-			console.error(`${name}: unhandled error`, e);
-			await reportError(e, name);
-			return error("Something went wrong", 500);
+			const ref = await reportError(e, name);
+			console.error(`${name}: unhandled error [ref ${ref}]`, e);
+			return error(`Something went wrong. Reference: ${ref}`, 500);
 		}
 	};
 
@@ -43,8 +49,8 @@ export const withScheduledErrorHandling =
 		try {
 			await handler();
 		} catch (e) {
-			console.error(`${name}: unhandled error`, e);
-			await reportError(e, name);
+			const ref = await reportError(e, name);
+			console.error(`${name}: unhandled error [ref ${ref}]`, e);
 		}
 	};
 
