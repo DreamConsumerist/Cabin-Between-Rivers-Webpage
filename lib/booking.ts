@@ -54,8 +54,34 @@ const nightlyRateForNight = (
 	return override ? override.nightlyRate : defaultRateCents;
 };
 
-// Total price in cents for a stay, summing each night's rate (default or
+// Flat lodging tax rate. The cabin is a single fixed-location property, so
+// the same rate applies to every booking regardless of guest location —
+// no need for Stripe Tax or jurisdiction lookups.
+export const TAX_RATE = 0.03;
+
+export const taxCentsFor = (subtotalCents: number): number =>
+	Math.round(subtotalCents * TAX_RATE);
+
+// Subtotal in cents for a stay, summing each night's rate (default or
 // overridden) plus the flat cleaning fee. All money inputs are cents.
+export const computeSubtotalCentsWithOverrides = (
+	checkIn: string,
+	checkOut: string,
+	defaultRateCents: number,
+	cleaningFeeCents: number,
+	overrides: Array<PriceOverrideRange>
+): number => {
+	let subtotal = cleaningFeeCents;
+	let night = dayjs(checkIn);
+	const end = dayjs(checkOut);
+	while (night.isBefore(end, "day")) {
+		subtotal += nightlyRateForNight(night, defaultRateCents, overrides);
+		night = night.add(1, "day");
+	}
+	return subtotal;
+};
+
+// Total price in cents for a stay: subtotal (nights + cleaning fee) plus tax.
 export const computeTotalCentsWithOverrides = (
 	checkIn: string,
 	checkOut: string,
@@ -63,12 +89,12 @@ export const computeTotalCentsWithOverrides = (
 	cleaningFeeCents: number,
 	overrides: Array<PriceOverrideRange>
 ): number => {
-	let total = cleaningFeeCents;
-	let night = dayjs(checkIn);
-	const end = dayjs(checkOut);
-	while (night.isBefore(end, "day")) {
-		total += nightlyRateForNight(night, defaultRateCents, overrides);
-		night = night.add(1, "day");
-	}
-	return total;
+	const subtotal = computeSubtotalCentsWithOverrides(
+		checkIn,
+		checkOut,
+		defaultRateCents,
+		cleaningFeeCents,
+		overrides
+	);
+	return subtotal + taxCentsFor(subtotal);
 };

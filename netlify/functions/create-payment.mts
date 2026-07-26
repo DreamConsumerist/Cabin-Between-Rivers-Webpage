@@ -5,6 +5,17 @@ import { getStripe } from "../../lib/stripe";
 
 const bodySchema = z.object({ reservationId: z.number().int().positive() });
 
+// Compact date range for the Stripe statement descriptor suffix — see the
+// comment at its call site for the character budget this has to fit in.
+// Same-month stays use "MMDD-DD" (7 chars); cross-month stays use
+// "MMDD-MMDD" (9 chars) — both fit within the 10-char suffix budget.
+const statementDateRange = (checkIn: string, checkOut: string): string => {
+	const [, inMonth, inDay] = checkIn.split("-");
+	const [, outMonth, outDay] = checkOut.split("-");
+	if (inMonth === outMonth) return `${inMonth}${inDay}-${outDay}`;
+	return `${inMonth}${inDay}-${outMonth}${outDay}`;
+};
+
 // POST /api/create-payment
 // Starts an embedded Stripe Checkout Session for a PENDING reservation. The amount
 // charged always comes from the reservation row (priced server-side in
@@ -49,6 +60,17 @@ export default withErrorHandling("create-payment", async (req, _context) => {
 					},
 				],
 				metadata: { reservationId: String(reservation.id) },
+				payment_intent_data: {
+					// Appended by Stripe as "<account's shortened descriptor>* <suffix>"
+					// on the guest's card statement. The account's shortened descriptor
+					// is set to "CABBETWRiv" (10 chars) in the Stripe Dashboard, so
+					// together with the "* " Stripe inserts and this suffix, the guest
+					// sees "CABBETWRiv* <dates>" — reading as "...Riv..." to complete
+					// "Cabin Between Rivers". Stripe caps the combined descriptor at 22
+					// chars, leaving exactly 10 for this suffix — enough for either a
+					// same-month or cross-month date range (see statementDateRange).
+					statement_descriptor_suffix: statementDateRange(reservation.checkIn, reservation.checkOut),
+				},
 				// reservationId is appended so the confirmation page can poll our own
 				// reservation-status endpoint directly, without needing to look the
 				// session up via Stripe (the webhook is what actually confirms it).

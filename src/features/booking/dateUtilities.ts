@@ -51,19 +51,36 @@ export const nightlyRateForDate = (
 	return override ? override.nightlyRate : defaultRate;
 };
 
+// Mirrors lib/booking.ts's TAX_RATE/taxCentsFor — the server is authoritative;
+// this is only for the client-side estimate.
+export const TAX_RATE = 0.03;
+
+export const taxCentsFor = (subtotalCents: number): number =>
+	Math.round(subtotalCents * TAX_RATE);
+
+export const computeEstimatedSubtotalCents = (
+	checkIn: Dayjs,
+	checkOut: Dayjs,
+	pricing: Pricing,
+	overrides: Array<PriceOverride>
+): number => {
+	let subtotal = pricing.cleaningFee;
+	let night = checkIn;
+	while (night.isBefore(checkOut, "day")) {
+		subtotal += nightlyRateForDate(night, pricing.nightlyRate, overrides);
+		night = night.add(1, "day");
+	}
+	return subtotal;
+};
+
 export const computeEstimatedTotalCents = (
 	checkIn: Dayjs,
 	checkOut: Dayjs,
 	pricing: Pricing,
 	overrides: Array<PriceOverride>
 ): number => {
-	let total = pricing.cleaningFee;
-	let night = checkIn;
-	while (night.isBefore(checkOut, "day")) {
-		total += nightlyRateForDate(night, pricing.nightlyRate, overrides);
-		night = night.add(1, "day");
-	}
-	return total;
+	const subtotal = computeEstimatedSubtotalCents(checkIn, checkOut, pricing, overrides);
+	return subtotal + taxCentsFor(subtotal);
 };
 
 export const formatCents = (cents: number): string =>
