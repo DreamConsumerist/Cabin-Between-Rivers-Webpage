@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { json, requireMethod } from "../../lib/http";
+import { json, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { listExternalBlocks, listReservations } from "../../lib/availability";
 import { listManualBlocks } from "../../lib/manualBlocks";
@@ -9,7 +8,7 @@ import { listManualBlocks } from "../../lib/manualBlocks";
 // Deliberately omits `idPhotoBlobKey` (an internal storage key) in favor of
 // `hasIdPhoto` — the raw key isn't useful to the frontend, and the photo
 // itself is only ever fetched through admin-id-photo.mts.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-bookings", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -27,4 +26,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	}));
 
 	return json({ reservations, externalBlocks, manualBlocks });
-};
+});

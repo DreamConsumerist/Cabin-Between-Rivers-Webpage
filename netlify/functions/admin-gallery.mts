@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Context } from "@netlify/functions";
 import { imageSize } from "image-size";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import {
 	deleteGalleryPhoto,
@@ -100,7 +99,7 @@ const handleReorder = async (req: Request): Promise<Response> => {
 	return json({ ok: true });
 };
 
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-gallery", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -121,4 +120,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("admin-gallery failed", e);
 		return error("Request failed", 500);
 	}
-};
+});

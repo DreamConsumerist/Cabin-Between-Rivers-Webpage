@@ -6,6 +6,7 @@
 
 interface ImportMetaEnv {
 	readonly VITE_APP_ENVIRONMENT: string;
+	readonly VITE_SENTRY_DSN: string | undefined;
 	// more env variables...
 }
 

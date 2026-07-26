@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { json, requireMethod } from "../../lib/http";
+import { json, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { regenerateExportToken } from "../../lib/availability";
 
@@ -8,7 +7,7 @@ import { regenerateExportToken } from "../../lib/availability";
 // GET/PUT own the *import* URLs + notification emails) because this is the
 // opposite direction of data flow and isn't part of that form's submit — same
 // relationship admin-ical-sync.mts has to admin-ical.mts today.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-ical-export-token", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -20,4 +19,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		exportToken,
 		exportUrl: `${new URL(req.url).origin}/api/calendar-export.ics?token=${exportToken}`,
 	});
-};
+});

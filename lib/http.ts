@@ -1,5 +1,8 @@
 // Small helpers for JSON responses from Netlify Functions.
 
+import type { Context } from "@netlify/functions";
+import { reportError } from "./sentry";
+
 export const json = (data: unknown, status = 200): Response =>
 	new Response(JSON.stringify(data), {
 		status,
@@ -8,6 +11,42 @@ export const json = (data: unknown, status = 200): Response =>
 
 export const error = (message: string, status = 400): Response =>
 	json({ error: message }, status);
+
+// Wraps a function handler so an unhandled exception reports to Sentry, logs
+// server-side, and returns a generic message — instead of falling through to
+// Netlify's raw Lambda error page, which leaks internal file paths to
+// whoever hit the endpoint (see SETUP.md's former "Functions leak raw stack
+// traces" known issue; this is that fix). `name` tags the Sentry event per
+// endpoint so events group/filter by function instead of one bucket for
+// every 500. Doesn't interfere with a handler's own try/catch returning a
+// specific Response (e.g. a 409 on a booking conflict) — only catches what
+// escapes past that.
+export const withErrorHandling =
+	(name: string, handler: (req: Request, context: Context) => Promise<Response>) =>
+	async (req: Request, context: Context): Promise<Response> => {
+		try {
+			return await handler(req, context);
+		} catch (e) {
+			console.error(`${name}: unhandled error`, e);
+			await reportError(e, name);
+			return error("Something went wrong", 500);
+		}
+	};
+
+// Same contract as withErrorHandling above, for the two scheduled (cron)
+// functions (expire-holds.mts, ical-sync.mts), whose signature has no
+// Request/Response — a thrown error there has no caller to see it, so
+// without this it's invisible outside the Netlify function log.
+export const withScheduledErrorHandling =
+	(name: string, handler: () => Promise<void>) =>
+	async (): Promise<void> => {
+		try {
+			await handler();
+		} catch (e) {
+			console.error(`${name}: unhandled error`, e);
+			await reportError(e, name);
+		}
+	};
 
 // Guard a function to a single HTTP method; returns a 405 Response if it doesn't match.
 export const requireMethod = (req: Request, method: string): Response | null =>

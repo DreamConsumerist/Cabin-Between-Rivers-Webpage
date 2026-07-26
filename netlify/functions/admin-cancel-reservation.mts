@@ -1,8 +1,9 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
+import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { adminCancelReservation, getReservationById } from "../../lib/availability";
+import { sendCancellationEmail } from "../../lib/mailer";
+import { reportCritical } from "../../lib/sentry";
 import { refundPayment } from "../../lib/stripe";
 
 const bodySchema = z.object({ reservationId: z.number().int().positive() });
@@ -11,9 +12,10 @@ const bodySchema = z.object({ reservationId: z.number().int().positive() });
 // by the double-booking reconciliation tool (Conflicts tab and the Bookings
 // tab's overflow menu) to resolve a conflict by freeing the site's side:
 // refunds via Stripe first when a payment was charged, then cancels the
-// reservation. Unlike the guest-facing cancel-reservation.mts, this works on
-// confirmed reservations, not just pending holds.
-export default async (req: Request, _context: Context): Promise<Response> => {
+// reservation, then emails the guest either way (refunded or not — see
+// sendCancellationEmail). Unlike the guest-facing cancel-reservation.mts,
+// this works on confirmed reservations, not just pending holds.
+export default withErrorHandling("admin-cancel-reservation", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -45,6 +47,22 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 
 	try {
 		const cancelled = await adminCancelReservation(reservation.id);
+		// Gated on the PRE-cancel status (`reservation`, not `cancelled` — the
+		// latter always reads "cancelled" post-update) — a still-pending hold
+		// was never a booking the guest would recognize as "confirmed", so
+		// cancelling one (e.g. cleaning up a stuck hold, or resolving a
+		// conflict where the losing side never finished paying) shouldn't
+		// surface as a "your reservation was cancelled" email.
+		if (cancelled && reservation.status === "confirmed") {
+			await sendCancellationEmail({
+				guestName: cancelled.guestName,
+				guestEmail: cancelled.guestEmail,
+				checkIn: cancelled.checkIn,
+				checkOut: cancelled.checkOut,
+				amountTotal: cancelled.amountTotal,
+				refunded,
+			});
+		}
 		return json({ reservation: cancelled, refunded });
 	} catch (e) {
 		// The refund (if any) already went through at this point — this is a
@@ -54,6 +72,11 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			`admin-cancel-reservation: CRITICAL — reservation ${reservation.id} was refunded=${refunded} but the status update failed; fix the status manually`,
 			e
 		);
+		await reportCritical(
+			"Refund succeeded but reservation status update failed",
+			{ reservationId: reservation.id, refunded },
+			e
+		);
 		return error(
 			refunded
 				? "Refund succeeded but the reservation status could not be updated — fix its status manually."
@@ -61,4 +84,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			500
 		);
 	}
-};
+});

@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { syncCalendars } from "../../lib/icalSync";
 
@@ -7,7 +6,7 @@ import { syncCalendars } from "../../lib/icalSync";
 // tab, independent of saving URLs (compare admin-ical.mts's PUT, which also
 // syncs inline after a save). Both go through lib/icalSync.syncCalendars —
 // this file is a thin trigger, not a second implementation.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-ical-sync", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -21,4 +20,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("admin-ical-sync: sync failed", e);
 		return error("Sync failed", 500);
 	}
-};
+});

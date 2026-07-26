@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { getSettings, updateTermsContent } from "../../lib/availability";
 import { DEFAULT_TERMS_CONTENT } from "../../lib/terms";
@@ -11,7 +10,7 @@ const updateSchema = z.object({
 
 // GET/PUT /api/admin-terms — the Terms & Conditions text shown to guests via
 // /api/terms. Both methods require an admin session.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-terms", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -35,4 +34,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	}
 
 	return error("Method not allowed", 405);
-};
+});

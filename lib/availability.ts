@@ -211,20 +211,25 @@ export const updateIcalUrls = async (update: IcalUpdate) => {
 	return rows[0]!;
 };
 
+export type NotificationEmailsUpdate = {
+	notificationEmails: string | null;
+};
+
 // Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
-// `notificationEmails` — kept separate so the Notifications admin tab doesn't
-// need to resend the iCal URLs (and vice versa) just to save its own field.
-export const updateNotificationEmails = async (notificationEmails: string | null) => {
+// the notification-recipient list — kept separate so the Notifications admin
+// tab doesn't need to resend the iCal URLs (and vice versa) just to save its
+// own field.
+export const updateNotificationEmails = async (update: NotificationEmailsUpdate) => {
 	const existing = await getSettings();
 	if (existing) {
 		const rows = await db
 			.update(settings)
-			.set({ notificationEmails })
+			.set(update)
 			.where(eq(settings.id, existing.id))
 			.returning();
 		return rows[0]!;
 	}
-	const rows = await db.insert(settings).values({ notificationEmails }).returning();
+	const rows = await db.insert(settings).values(update).returning();
 	return rows[0]!;
 };
 
@@ -396,6 +401,10 @@ export const insertPendingReservation = async (r: NewReservation) => {
 			amountTotal: r.amountTotal,
 			status: "pending",
 			holdExpiresAt,
+			// Minted upfront (not lazily on confirm) so it's always present by
+			// the time stripe-webhook.mts reads it back — see
+			// db/schema.ts's cancellationToken comment.
+			cancellationToken: randomBytes(24).toString("hex"),
 		})
 		.returning({
 			id: reservations.id,

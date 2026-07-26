@@ -1,4 +1,5 @@
 import type { Config } from "@netlify/functions";
+import { withScheduledErrorHandling } from "../../lib/http";
 import { syncCalendars } from "../../lib/icalSync";
 
 // Scheduled iCal sync: pulls the Airbnb/Vrbo .ics feeds into external_blocks
@@ -7,15 +8,11 @@ import { syncCalendars } from "../../lib/icalSync";
 // expire-holds.mts), but should stay reasonably fresh to minimize the
 // double-booking window — every 30 minutes. Scheduled functions run only on
 // production deploys, in UTC, and return no response body.
-export default async (): Promise<void> => {
-	try {
-		const summary = await syncCalendars();
-		for (const result of summary.results) {
-			if (!result.ok) console.error(`ical-sync: ${result.source} sync failed`, result.error);
-		}
-	} catch (e) {
-		console.error("ical-sync: unexpected failure", e);
+export default withScheduledErrorHandling("ical-sync", async () => {
+	const summary = await syncCalendars();
+	for (const result of summary.results) {
+		if (!result.ok) console.error(`ical-sync: ${result.source} sync failed`, result.error);
 	}
-};
+});
 
 export const config: Config = { schedule: "*/30 * * * *" };

@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { error, requireMethod } from "../../lib/http";
+import { error, requireMethod, withErrorHandling } from "../../lib/http";
 import { getSettings } from "../../lib/availability";
 import { DEFAULT_TERMS_CONTENT, renderTermsHtml } from "../../lib/terms";
 
@@ -7,7 +6,7 @@ import { DEFAULT_TERMS_CONTENT, renderTermsHtml } from "../../lib/terms";
 // booking flow's Terms step (see src/features/booking/TermsStep.tsx). Public,
 // no admin session required. Same-origin (served from this site's own /api/*)
 // so TermsStep's scroll-to-bottom check can read the iframe's DOM directly.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("terms", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
@@ -58,4 +57,4 @@ ${renderTermsHtml(content)}
 		console.error("terms failed", e);
 		return error("Could not load terms", 500);
 	}
-};
+});

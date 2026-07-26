@@ -1,12 +1,11 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
+import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import { setSessionCookieHeader, verifyAdminPassword } from "../../lib/adminAuth";
 
 const bodySchema = z.object({ password: z.string().min(1) });
 
 // POST /api/admin-login -> sets the admin session cookie on success.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-login", async (req, _context) => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
 
@@ -23,4 +22,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	const response = json({ ok: true });
 	response.headers.set("set-cookie", setSessionCookieHeader(req));
 	return response;
-};
+});

@@ -24,10 +24,12 @@ export const NotificationsForm = (): FunctionComponent => {
 		resolver: zodResolver(notificationsFormSchema),
 	});
 
-	// Populate the form once the current recipient list loads (it can't be
+	// Populate the form once the current recipient lists load (they can't be
 	// known at first render — the query starts empty).
 	useEffect(() => {
-		if (data) reset({ notificationEmails: data.notificationEmails });
+		if (data) {
+			reset({ notificationEmails: data.notificationEmails });
+		}
 	}, [data, reset]);
 
 	if (isLoading) {
@@ -52,6 +54,7 @@ export const NotificationsForm = (): FunctionComponent => {
 				error={errors.notificationEmails?.message}
 			/>
 			<p className="-mt-3 text-sm text-neutral-500">Comma-separated.</p>
+
 			{update.isError && (
 				<p className="text-sm text-red-600">{update.error.message}</p>
 			)}

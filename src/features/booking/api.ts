@@ -72,6 +72,37 @@ export const cancelReservation = (reservationId: number): Promise<{ cancelled: b
 		body: JSON.stringify({ reservationId }),
 	});
 
+// The confirmed-booking counterpart to cancelReservation above — token-gated
+// (see db/schema.ts's cancellationToken, cancel-my-reservation.mts), reached
+// from a link in the guest's own confirmation email rather than same-session
+// in-app state, so it works days/weeks later without a login. `reason` is
+// either the reservation's own status (not confirmed — already cancelled,
+// expired, or still pending) or "too_close_to_checkin" (confirmed, but
+// within cancel-my-reservation.mts's 24h-before-check-in cutoff — which also
+// covers during/after the stay, since "now" is trivially past that deadline
+// once check-in itself has happened).
+export type CancellableReservation =
+	| { eligible: true; checkIn: string; checkOut: string; guests: number; amountTotal: number }
+	| { eligible: false; reason: ReservationStatus | "too_close_to_checkin" };
+
+export const fetchCancellableReservation = (
+	reservationId: number,
+	token: string
+): Promise<CancellableReservation> =>
+	jsonFetch(
+		`/api/cancel-my-reservation?reservationId=${reservationId}&token=${encodeURIComponent(token)}`
+	);
+
+export const cancelMyReservation = (
+	reservationId: number,
+	token: string
+): Promise<{ cancelled: boolean }> =>
+	jsonFetch("/api/cancel-my-reservation", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ reservationId, token }),
+	});
+
 export const uploadIdPhoto = (reservationId: number, file: File): Promise<{ ok: boolean }> => {
 	const form = new FormData();
 	form.set("reservationId", String(reservationId));

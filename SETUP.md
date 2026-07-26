@@ -48,10 +48,38 @@ Reference: the full technical plan lives at
   resolved). If `RESEND_API_KEY`/`NOTIFICATION_FROM_EMAIL` are set (see "Later phases" below), the
   address(es) configured on the `/admin` Notifications tab also get emailed when a conflict is
   flagged, and whenever a booking made directly on the site is confirmed.
+- ✅ Guest self-service cancellation: the confirmation email includes a "Cancel my reservation" link
+  (`/booking/cancel`) good for the life of that one booking, gated by a random per-reservation
+  `cancellationToken` rather than a login — `netlify/functions/cancel-my-reservation.mts` verifies it,
+  refunds via Stripe in full, cancels the reservation, and emails both the guest (confirmation) and
+  the admin notification address(es) (so a self-service refund doesn't go unnoticed). GET/POST split
+  so an email link-scanner fetching the URL can't trigger the cancellation itself — GET only returns a
+  summary for the page to render; the guest has to click through a confirm dialog, which POSTs.
+  Blocked entirely within 24h of check-in (and thus during/after the stay too); full refund, no
+  partial-fee tiers otherwise — see "Later phases" below.
 - ✅ Admin Bookings tab: alongside the existing list, a month-at-a-glance calendar
   (`src/features/admin/BookingsCalendar.tsx`) tints each reservation's nights by status
   (pending/confirmed), shows the guest's name on their check-in day, highlights a reservation's
   whole date range on hover, and clicking a day jumps to that reservation in the list below.
+- ✅ Error monitoring: `lib/sentry.ts` (server) / `src/sentry.ts` (client) report to Sentry when
+  `SENTRY_DSN`/`VITE_SENTRY_DSN` are set (silent no-op otherwise — see "Later phases" below).
+  `lib/http.ts`'s `withErrorHandling`/`withScheduledErrorHandling` wrap every function handler
+  (including the two scheduled ones), reporting anything unhandled and returning a generic 500
+  instead of Netlify's raw stack-trace error page. A handful of already-caught CRITICAL states
+  (a Stripe refund succeeded but the DB write right after it failed or raced) report explicitly
+  via `reportCritical` in `stripe-webhook.mts`, `admin-cancel-reservation.mts`, and
+  `cancel-my-reservation.mts`. The server side speaks Sentry's HTTP envelope API directly via plain
+  `fetch` — no `@sentry/node` SDK — same lean-dependency reasoning as `lib/mailer.ts`'s raw Resend
+  calls, and specifically because `@sentry/node`'s OpenTelemetry-instrumentation tree reliably
+  crashed `netlify dev` locally on Windows (EMFILE, tracing every one of ~30 functions' huge
+  dependency trees). It never includes request bodies/cookies/headers/query strings in what it
+  sends (several guest-facing links carry a bearer-token-equivalent in the query string), since it
+  only ever constructs the event from explicit tags/extra — nothing ambient gets attached. The
+  frontend keeps `@sentry/react` (a single Vite bundle, unaffected by the dev-bundler issue) with a
+  `beforeSend`/`beforeBreadcrumb` pair doing the same query-string scrubbing, plus
+  `Sentry.ErrorBoundary` in `src/App.tsx` catching a render-time exception instead of blanking the
+  page. Replaces `settings.errorNotificationEmails`, which has been removed — see "Later phases"
+  below.
 
 ---
 
@@ -312,6 +340,21 @@ out of `netlify.toml` and any tracked `.env`.
   the iCal tab in `/admin` (stored in the `settings` table, not an env var), same reasoning as the
   iCal URLs above.
 - **Admin panel:** `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` — see "Admin panel" above.
+- **Error monitoring (Sentry):** `SENTRY_DSN` (server, Netlify Functions scope) and
+  `VITE_SENTRY_DSN` (client — Vite exposes anything prefixed `VITE_`). Create a free-tier project
+  at sentry.io (platform "React" covers both — the DSN itself isn't platform-locked), then copy
+  the DSN from Project Settings → Client Keys and set both:
+  ```bash
+  netlify env:set SENTRY_DSN https://...@...ingest.sentry.io/...
+  netlify env:set VITE_SENTRY_DSN https://...@...ingest.sentry.io/...
+  ```
+  > Restart `netlify dev` (and the Vite dev server) after setting these so they're picked up.
+
+  Without these set, error reporting is a silent no-op — the site and functions behave exactly as
+  before, just without Sentry visibility. Alerting (who gets paged for what) is configured in the
+  Sentry project itself, not in this repo — the default "email on new issue" rule covers the
+  developer-facing alerting `settings.errorNotificationEmails` used to be a placeholder for (that
+  field has been removed; see the "Already done" bullet below).
 
 ---
 
@@ -360,6 +403,14 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
 
 ## Known issues / TODO
 
+- **Favicon needs attribution** — `public/favicon.png` (referenced from `index.html`) came from
+  [flaticon.com/free-icon/cabin_92596](https://www.flaticon.com/free-icon/cabin_92596), used under
+  Flaticon's free license, which requires attribution unless a premium (attribution-free) license is
+  purchased. Not yet added anywhere on the site — check the Flaticon page itself for the exact
+  required credit line/author name (the free-license terms want the specific wording used, not just
+  a generic mention) before adding it, e.g. as a credit line in the footer or an `/about` mention
+  linking back to that page. Low risk at this traffic level, but should still be done properly.
+
 - **Gallery lightbox has no swipe navigation on mobile** — `src/components/ui/Gallery.tsx`. The
   `Lightbox` component only advances photos via the on-screen chevron buttons (`onPrev`/`onNext`) or
   arrow keys (`ArrowLeft`/`ArrowRight` in its `keydown` handler) — there's no touch/swipe gesture, so
@@ -369,40 +420,36 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   the image/lightbox container.
 
 - **"Booked!" confirmation needs a more satisfying splash** — `src/pages/BookingConfirmation.tsx`. The
-  confirmed state right now is just a plain heading and one line of text ("You're booked! Reservation
-  #X is confirmed."). Wants real design treatment — an animation/illustration, actual booking details
-  (dates, total, cabin name), maybe a "what happens next" section — instead of the current bare-bones
-  placeholder. Same idea likely applies to the initial "Booked!" moment before the confirmation page
-  too (a splash/transition rather than just swapping text once `status` flips to `confirmed`).
+  confirmed state right now is just a plain heading and one line of text ("You're booked! A
+  confirmation email will be sent to you shortly."). Wants real design treatment — an
+  animation/illustration, actual booking details (dates, total, cabin name), maybe a "what happens
+  next" section — instead of the current bare-bones placeholder. Same idea likely applies to the
+  initial "Booked!" moment before the confirmation page too (a splash/transition rather than just
+  swapping text once `status` flips to `confirmed`).
 
-- **Guest email follow-up with receipt** — nothing currently emails the guest anything. After
-  `stripe-webhook.mts` confirms a reservation, it should trigger a confirmation email with a receipt
-  (dates, amount charged, cabin details) — probably via Stripe's own receipt emails as a starting
-  point, or reusing the Resend integration `lib/mailer.ts` already has wired up for the double-booking
-  alert (see "Later phases" env vars above), just with a new template/trigger rather than a whole new
-  provider to choose and set up.
+- **Guest confirmation/cancellation emails need more detail** — `lib/mailer.ts`'s
+  `sendBookingConfirmationEmail`/`sendCancellationEmail` cover the mechanics (dates, amount, HTML
+  formatting, reply-to routed to the business notification address) but the content itself is
+  minimal — no property address, check-in/check-out times, contact info, or cancellation policy.
+  Deliberately deferred until the site's own property info is accurate (see the design-pass note
+  above) — no point templating in details that are still wrong.
 
-- **Admin email notification on new bookings** — the double-booking conflict alert
-  (`lib/mailer.ts`'s `notifyDoubleBooking`, see Phase 5 above) is the only email currently wired up.
-  Nothing notifies you when an ordinary new booking comes in, or of server-side issues (e.g. an
-  unhandled function error — ties into the stack-trace item below, since right now those errors only
-  ever reach a log line, never a person) — you'd only find out by checking `/admin` or the function
-  logs directly. Same Resend integration, just a new trigger.
+- **Guest self-cancellation is all-or-nothing — full refund or no self-service, no fee tiers yet** —
+  `netlify/functions/cancel-my-reservation.mts` (linked from the guest confirmation email, gated by
+  `reservations.cancellationToken`) blocks entirely once check-in is under 24h away (covers during/after
+  the stay too, for free — see the function's `isBeforeCancellationDeadline` comment), but any
+  cancellation before that cutoff still gets a full refund regardless of how close it was to the
+  cutoff. Deliberately simple initial policy. Eventually likely wants tiers — e.g. full refund up to N
+  days before check-in, a flat fee or percentage between then and the 24h cutoff — rather than the
+  current single on/off switch. `lib/stripe.ts`'s `refundPayment` only supports a full refund today
+  too — a partial-refund policy would need `refunds.create({ payment_intent, amount })` with a
+  computed amount instead.
 
 - **A spot for guests to leave a review** — nothing in the booking/confirmation flow prompts a guest
   for a review after their stay. Could be as simple as a "how was your stay?" link in the post-stay
   follow-up email above pointing to an external review platform (Airbnb/Google/etc.), or a review
   feature built into the site itself — worth deciding which before building either the email or the
   page.
-
-- **Functions leak raw stack traces on unhandled errors** — `netlify/functions/*.mts`. Most handlers
-  have no top-level try/catch (a few do, like `admin-gallery.mts` and `create-booking.mts`, but most
-  don't), so an unexpected exception — like the missing-env-var 502 hit while diagnosing the admin
-  login issue on 2026-07-23 — falls through to Netlify's raw Lambda error response: a full stack
-  trace with internal file paths (`file:///var/task/netlify/functions/admin-login.mjs:34:21`),
-  returned to *anyone* who hits the endpoint, not just admins. Needs a shared wrapper (e.g. in
-  `lib/http.ts`) around every handler that catches anything unhandled, logs the real error
-  server-side, and returns a generic `error("Something went wrong", 500)` to the caller instead.
 
 - **Admin panel / booking flow need clearer error messages for non-technical operators** — day-to-day
   site management (uploading photos, checking bookings) is being handed off to people who aren't
@@ -416,6 +463,53 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   a plain-language message (what failed) plus something concrete to relay when reporting it
   (timestamp, and ideally a short reference/request id that shows up in the function logs too, so you
   can find the matching error without guessing).
+
+- **No reconciliation if the Stripe webhook never arrives at all** — `netlify/functions/stripe-webhook.mts`
+  is the *only* path that ever flips a reservation to `confirmed`; `reservation-status.mts` (polled by
+  `BookingConfirmation.tsx` every 2s while `status === "pending"`, see `hooks.ts`) only ever reads the
+  DB, never checks with Stripe directly. If the webhook is delayed or never lands — endpoint
+  misconfigured, Stripe outage, a code exception unrelated to the handled overlap case — the guest sees
+  "Payment not completed" once `HOLD_MINUTES` (15 min) lapses and `expire-holds.mts` frees the dates,
+  despite having actually paid. Nobody finds out either, since none of the existing error paths
+  (`flagDoubleBooking`, etc.) run if the webhook handler itself never executes — only a manual
+  cross-check against the Stripe dashboard would catch it. Confirmed via the Stripe API on 2026-07-25
+  that zero webhook endpoints are currently registered at all (test or live), so this isn't hypothetical
+  — it's the guaranteed outcome of any transaction today, though harmless while still on Stripe test-mode
+  keys (test-mode Checkout rejects real cards outright, so no real guest can currently complete a real
+  payment through it). Needs, before switching to live Stripe keys: (1) an actual webhook endpoint
+  registered in the Stripe dashboard pointed at the production URL, for both test and live mode
+  separately, and (2) a fallback that doesn't depend on the webhook alone — e.g. use the `sessionId`
+  already appended to the Stripe `return_url` in `create-payment.mts` (parsed by
+  `booking_.confirmation.ts`'s route but never actually read anywhere) to call
+  `stripe.checkout.sessions.retrieve` directly and self-heal a stuck-`pending` reservation whose Stripe
+  session actually completed.
+
+- **No rate limiting anywhere** — `netlify/functions/*.mts`. Nothing in the app or `netlify.toml` throttles
+  requests per IP/session. Two concrete exposures: `create-booking.mts` has no cap on how many holds one
+  caller can create, so a script could keep the entire calendar perpetually held (each hold lasts up to
+  `HOLD_MINUTES`, but a loop re-issuing new holds just before expiry never lets real guests book) without
+  ever paying; `admin-login.mts` has no attempt counter/backoff, so the admin password is brute-forceable
+  at whatever rate the caller wants (the comparison itself is timing-safe — see `lib/adminAuth.ts` — but
+  that only protects against timing attacks, not repeated guessing). Netlify has a paid rate-limiting
+  feature that isn't configured; an app-level limiter (even a simple in-memory or DB-backed per-IP
+  counter) on `create-booking`, `create-payment`, and `admin-login` would close both.
+
+- **No security deposit / damage protection** — booking is a single full charge at reservation time
+  (`create-payment.mts`, `mode: "payment"`) with no deposit hold or authorize-now/capture-later split.
+  "Guest is responsible for damage" exists only as contract language in `lib/terms.ts`, unenforced by
+  anything technical. If this needs real teeth, options are a separate deposit `PaymentIntent` with
+  `capture_method: "manual"` (authorize at booking, capture only if needed, release otherwise) or a
+  flat additional deposit charged and refunded automatically after checkout.
+
+- **Uploaded photo IDs are retained forever** — `reservations.idPhotoBlobKey` (see
+  `netlify/functions/upload-id-photo.mts`) is only ever cleared when a guest re-uploads and replaces
+  one (a lost race). Nothing deletes the blob when a reservation is cancelled (`cancel-reservation.mts`,
+  `admin-cancel-reservation.mts`, `cancel-my-reservation.mts` — none of them touch Netlify Blobs) or
+  expires (`expire-holds.mts`), and there's no scheduled sweep for old ones either. Sensitive PII (a
+  government photo ID) sitting in storage indefinitely — even for a hold that never got confirmed — is a
+  data-minimization/compliance concern regardless of the admin-gating already in place on read access.
+  Wants a retention policy: delete on cancel/expire, and/or an auto-purge job for anything past some
+  age (e.g. well after the stay's checkout date).
 
 - **Payment succeeds but the dates are already gone (rare race)** — `netlify/functions/stripe-webhook.mts`.
   If a reservation's hold lapses (or gets cancelled by the tab-close beacon in `Booking.tsx`) right as

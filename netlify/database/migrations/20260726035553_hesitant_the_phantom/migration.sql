@@ -1,0 +1,1 @@
+ALTER TABLE "settings" DROP COLUMN "error_notification_emails";

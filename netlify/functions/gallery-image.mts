@@ -1,12 +1,11 @@
-import type { Context } from "@netlify/functions";
-import { error, requireMethod } from "../../lib/http";
+import { error, requireMethod, withErrorHandling } from "../../lib/http";
 import { getPhotoBlob } from "../../lib/blobs";
 
 // GET /api/gallery-image?key=<blobKey> -> streams the photo's raw bytes.
 // Public — no admin session required. Blob keys are single-use (a re-upload
 // gets a fresh key rather than overwriting one), so the response is safe to
 // cache as immutable.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("gallery-image", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
@@ -22,4 +21,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			"cache-control": "public, max-age=31536000, immutable",
 		},
 	});
-};
+});

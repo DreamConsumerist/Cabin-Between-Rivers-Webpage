@@ -1,0 +1,1 @@
+ALTER TABLE "reservations" ADD COLUMN "cancellation_token" varchar(64);

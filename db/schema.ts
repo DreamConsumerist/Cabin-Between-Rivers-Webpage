@@ -45,6 +45,18 @@ export const reservations = pgTable("reservations", {
 	// is only ever served through an admin-gated endpoint
 	// (netlify/functions/admin-id-photo.mts), never a public one.
 	idPhotoBlobKey: varchar("id_photo_blob_key", { length: 255 }),
+	// Random secret minted at creation (see insertPendingReservation), never
+	// exposed anywhere except the guest's own confirmation email — lets a
+	// guest cancel/refund their own CONFIRMED reservation later (see
+	// netlify/functions/cancel-my-reservation.mts) without needing an
+	// account/login, same "unguessable link is the credential" model as
+	// settings.exportToken. Guest-facing cancel-reservation.mts (pending
+	// holds only, same browsing session) doesn't need this — only a
+	// stand-alone confirmed reservation, reachable days later from an email,
+	// does. Nullable rather than backfilled NOT NULL — existing rows from
+	// before this feature shipped simply have no self-cancel link (their
+	// confirmation email never included one either); every new row gets one.
+	cancellationToken: varchar("cancellation_token", { length: 64 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -131,7 +143,8 @@ export const settings = pgTable("settings", {
 	// here (not an env var) via its own Notifications tab
 	// (netlify/functions/admin-notifications.mts). Used for two email types:
 	// a booking-confirmed notice (Stripe webhook) and a double-booking warning
-	// (iCal sync or a Stripe payment race).
+	// (iCal sync or a Stripe payment race). Developer-facing error alerts go
+	// through Sentry instead (see lib/sentry.ts), not this list.
 	notificationEmails: text("notification_emails"),
 	// Plain text, admin-edited (see netlify/functions/admin-terms.mts). Null
 	// until an admin saves their own copy — lib/terms.ts's DEFAULT_TERMS_CONTENT

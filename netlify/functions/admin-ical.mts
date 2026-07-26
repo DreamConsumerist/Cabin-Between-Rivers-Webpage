@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import {
 	getOrCreateExportToken,
@@ -18,7 +17,7 @@ const updateSchema = z.object({
 // table (see db/schema.ts). Notification recipients live on their own
 // Notifications tab — see admin-notifications.mts. Both methods require an
 // admin session.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-ical", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -68,4 +67,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	}
 
 	return error("Method not allowed", 405);
-};
+});

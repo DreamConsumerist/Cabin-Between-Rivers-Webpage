@@ -90,7 +90,9 @@ export const regenerateExportToken = (): Promise<{
 export const fetchAdminTerms = (): Promise<{ termsContent: string }> =>
 	jsonFetch("/api/admin-terms");
 
-export type NotificationSettings = { notificationEmails: string };
+export type NotificationSettings = {
+	notificationEmails: string;
+};
 
 export const fetchAdminNotifications = (): Promise<NotificationSettings> =>
 	jsonFetch("/api/admin-notifications");

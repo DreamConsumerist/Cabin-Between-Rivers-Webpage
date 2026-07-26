@@ -10,8 +10,10 @@ const { getSettings } = await import("./availability");
 const {
 	notifyBookingConfirmed,
 	notifyDoubleBooking,
+	notifyGuestCancellation,
 	parseNotificationEmails,
 	sendBookingConfirmationEmail,
+	sendCancellationEmail,
 	sendEmail,
 } = await import("./mailer");
 
@@ -182,6 +184,7 @@ describe("notifyBookingConfirmed", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: "https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42",
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -205,6 +208,7 @@ describe("notifyBookingConfirmed", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: "https://cabinbetweenrivers.com/api/admin-id-photo?reservationId=42",
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -237,6 +241,7 @@ describe("notifyBookingConfirmed", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: null,
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -264,6 +269,7 @@ describe("notifyBookingConfirmed", () => {
 				guests: 2,
 				amountTotal: 12_345,
 				idPhotoUrl: null,
+				cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 			})
 		).resolves.toBeUndefined();
 
@@ -299,6 +305,7 @@ describe("sendBookingConfirmationEmail", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: null,
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -321,13 +328,14 @@ describe("sendBookingConfirmationEmail", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: null,
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
 		expect(body.reply_to).toBeUndefined();
 	});
 
-	it("sends to the guest's own email with the booking details in the body", async () => {
+	it("sends to the guest's own email with the booking details and a cancellation link in the body", async () => {
 		vi.stubEnv("RESEND_API_KEY", "test-key");
 		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
 		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
@@ -342,16 +350,23 @@ describe("sendBookingConfirmationEmail", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: null,
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
 		expect(body.to).toEqual(["jane@example.com"]);
 		expect(body.text).toContain("Jane Doe");
 		expect(body.text).toContain("$123.45");
+		expect(body.text).toContain(
+			"https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret"
+		);
 		expect(body.html).toContain("Jane Doe");
 		expect(body.html).toContain("$123.45");
 		expect(body.html).toContain("Aug 1, 2026");
 		expect(body.html).toContain("Aug 5, 2026");
+		expect(body.html).toContain(
+			'href="https://cabinbetweenrivers.com/booking/cancel?reservationId=42&amp;token=secret"'
+		);
 	});
 
 	it("escapes HTML in guest-supplied fields in the html body", async () => {
@@ -369,6 +384,7 @@ describe("sendBookingConfirmationEmail", () => {
 			guests: 2,
 			amountTotal: 12_345,
 			idPhotoUrl: null,
+			cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
 		});
 
 		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
@@ -392,6 +408,186 @@ describe("sendBookingConfirmationEmail", () => {
 				guests: 2,
 				amountTotal: 12_345,
 				idPhotoUrl: null,
+				cancellationUrl: "https://cabinbetweenrivers.com/booking/cancel?reservationId=42&token=secret",
+			})
+		).resolves.toBeUndefined();
+
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+});
+
+describe("sendCancellationEmail", () => {
+	const originalFetch = global.fetch;
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		global.fetch = originalFetch;
+		vi.mocked(getSettings).mockReset();
+	});
+
+	it("says the guest was refunded and includes the amount, when refunded", async () => {
+		vi.mocked(getSettings).mockResolvedValue({ notificationEmails: null } as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendCancellationEmail({
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			amountTotal: 12_345,
+			refunded: true,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.to).toEqual(["jane@example.com"]);
+		expect(body.subject).toContain("refunded");
+		expect(body.text).toContain("refund has been issued");
+		expect(body.text).toContain("Refunded: $123.45");
+		expect(body.html).toContain("refund has been issued");
+		expect(body.html).toContain("$123.45");
+	});
+
+	it("says the guest was not charged and omits an amount, when not refunded", async () => {
+		vi.mocked(getSettings).mockResolvedValue({ notificationEmails: null } as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendCancellationEmail({
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			amountTotal: 12_345,
+			refunded: false,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.subject).not.toContain("refunded");
+		expect(body.text).toContain("You were not charged");
+		expect(body.text).not.toContain("$123.45");
+		expect(body.html).toContain("You were not charged");
+		expect(body.html).not.toContain("$123.45");
+	});
+
+	it("sets reply_to to the configured notification emails", async () => {
+		vi.mocked(getSettings).mockResolvedValue({
+			notificationEmails: "admin@example.com",
+		} as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await sendCancellationEmail({
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			amountTotal: 12_345,
+			refunded: true,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.reply_to).toEqual(["admin@example.com"]);
+	});
+
+	it("swallows and logs a failed send instead of throwing", async () => {
+		vi.mocked(getSettings).mockResolvedValue({ notificationEmails: null } as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		global.fetch = vi.fn().mockRejectedValue(new Error("network down")) as unknown as typeof fetch;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(
+			sendCancellationEmail({
+				guestName: "Jane Doe",
+				guestEmail: "jane@example.com",
+				checkIn: "2026-08-01",
+				checkOut: "2026-08-05",
+				amountTotal: 12_345,
+				refunded: true,
+			})
+		).resolves.toBeUndefined();
+
+		expect(consoleError).toHaveBeenCalled();
+		consoleError.mockRestore();
+	});
+});
+
+describe("notifyGuestCancellation", () => {
+	const originalFetch = global.fetch;
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		global.fetch = originalFetch;
+		vi.mocked(getSettings).mockReset();
+	});
+
+	it("no-ops without calling fetch when no notification emails are configured", async () => {
+		vi.mocked(getSettings).mockResolvedValue({ notificationEmails: null } as never);
+		const fetchMock = vi.fn();
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await notifyGuestCancellation({
+			reservationId: 42,
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			amountTotal: 12_345,
+		});
+
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("sends to the configured recipients with the reservation ID and refunded amount in the body", async () => {
+		vi.mocked(getSettings).mockResolvedValue({
+			notificationEmails: "admin@example.com",
+		} as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+		global.fetch = fetchMock as unknown as typeof fetch;
+
+		await notifyGuestCancellation({
+			reservationId: 42,
+			guestName: "Jane Doe",
+			guestEmail: "jane@example.com",
+			checkIn: "2026-08-01",
+			checkOut: "2026-08-05",
+			amountTotal: 12_345,
+		});
+
+		const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+		expect(body.to).toEqual(["admin@example.com"]);
+		expect(body.text).toContain("#42");
+		expect(body.text).toContain("Jane Doe");
+		expect(body.text).toContain("$123.45");
+	});
+
+	it("swallows and logs a failed send instead of throwing", async () => {
+		vi.mocked(getSettings).mockResolvedValue({
+			notificationEmails: "admin@example.com",
+		} as never);
+		vi.stubEnv("RESEND_API_KEY", "test-key");
+		vi.stubEnv("NOTIFICATION_FROM_EMAIL", "bookings@example.com");
+		global.fetch = vi.fn().mockRejectedValue(new Error("network down")) as unknown as typeof fetch;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		await expect(
+			notifyGuestCancellation({
+				reservationId: 42,
+				guestName: "Jane Doe",
+				guestEmail: "jane@example.com",
+				checkIn: "2026-08-01",
+				checkOut: "2026-08-05",
+				amountTotal: 12_345,
 			})
 		).resolves.toBeUndefined();
 

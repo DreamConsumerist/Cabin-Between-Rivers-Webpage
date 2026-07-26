@@ -1,7 +1,6 @@
-import type { Context } from "@netlify/functions";
 import dayjs from "dayjs";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { isoDateSchema } from "../../lib/booking";
 import {
@@ -88,7 +87,7 @@ const handleDelete = async (req: Request): Promise<Response> => {
 	return json({ deleted: true });
 };
 
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-price-overrides", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -109,4 +108,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("admin-price-overrides failed", e);
 		return error("Request failed", 500);
 	}
-};
+});

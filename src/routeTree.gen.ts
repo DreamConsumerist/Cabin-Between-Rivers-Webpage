@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BookingConfirmationRouteImport } from './routes/booking_.confirmation'
+import { Route as BookingCancelRouteImport } from './routes/booking_.cancel'
 
 const BookingRoute = BookingRouteImport.update({
   id: '/booking',
@@ -40,12 +41,18 @@ const BookingConfirmationRoute = BookingConfirmationRouteImport.update({
   path: '/booking/confirmation',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BookingCancelRoute = BookingCancelRouteImport.update({
+  id: '/booking_/cancel',
+  path: '/booking/cancel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin': typeof AdminRoute
   '/booking': typeof BookingRoute
+  '/booking/cancel': typeof BookingCancelRoute
   '/booking/confirmation': typeof BookingConfirmationRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/admin': typeof AdminRoute
   '/booking': typeof BookingRoute
+  '/booking/cancel': typeof BookingCancelRoute
   '/booking/confirmation': typeof BookingConfirmationRoute
 }
 export interface FileRoutesById {
@@ -61,19 +69,33 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/admin': typeof AdminRoute
   '/booking': typeof BookingRoute
+  '/booking_/cancel': typeof BookingCancelRoute
   '/booking_/confirmation': typeof BookingConfirmationRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/about' | '/admin' | '/booking' | '/booking/confirmation'
+  fullPaths:
+    | '/'
+    | '/about'
+    | '/admin'
+    | '/booking'
+    | '/booking/cancel'
+    | '/booking/confirmation'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/about' | '/admin' | '/booking' | '/booking/confirmation'
+  to:
+    | '/'
+    | '/about'
+    | '/admin'
+    | '/booking'
+    | '/booking/cancel'
+    | '/booking/confirmation'
   id:
     | '__root__'
     | '/'
     | '/about'
     | '/admin'
     | '/booking'
+    | '/booking_/cancel'
     | '/booking_/confirmation'
   fileRoutesById: FileRoutesById
 }
@@ -82,6 +104,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AdminRoute: typeof AdminRoute
   BookingRoute: typeof BookingRoute
+  BookingCancelRoute: typeof BookingCancelRoute
   BookingConfirmationRoute: typeof BookingConfirmationRoute
 }
 
@@ -122,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BookingConfirmationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/booking_/cancel': {
+      id: '/booking_/cancel'
+      path: '/booking/cancel'
+      fullPath: '/booking/cancel'
+      preLoaderRoute: typeof BookingCancelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -130,6 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AdminRoute: AdminRoute,
   BookingRoute: BookingRoute,
+  BookingCancelRoute: BookingCancelRoute,
   BookingConfirmationRoute: BookingConfirmationRoute,
 }
 export const routeTree = rootRouteImport

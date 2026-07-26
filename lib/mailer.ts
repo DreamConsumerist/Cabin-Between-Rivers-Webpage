@@ -122,6 +122,11 @@ export type BookingConfirmedDetails = {
 	// guest never uploaded one. Only relevant to the admin notification below;
 	// the guest's own confirmation email has no reason to reference it.
 	idPhotoUrl: string | null;
+	// Absolute, token-gated (see cancel-my-reservation.mts) — the guest's own
+	// self-cancel link. Only relevant to the guest confirmation email below;
+	// the admin notification has no reason to reference it (the admin cancels
+	// from /admin instead).
+	cancellationUrl: string;
 };
 
 const adminBookingConfirmedHtml = (details: BookingConfirmedDetails): string => {
@@ -198,6 +203,9 @@ const bookingConfirmationHtml = (details: BookingConfirmedDetails): string => {
 		<p style="margin:24px 0 0;font-size:15px;color:#333333;line-height:1.5;">
 			We look forward to hosting you.
 		</p>
+		<p style="margin:16px 0 0;font-size:13px;color:#666666;line-height:1.5;">
+			Need to cancel? <a href="${escapeHtml(details.cancellationUrl)}" style="color:#5c871f;">Cancel my reservation</a>.
+		</p>
 	`);
 };
 
@@ -225,6 +233,8 @@ export const sendBookingConfirmationEmail = async (
 			`Amount paid: $${(details.amountTotal / 100).toFixed(2)}`,
 			"",
 			"We look forward to hosting you.",
+			"",
+			`Need to cancel? ${details.cancellationUrl}`,
 		].join("\n");
 
 		await sendEmail({
@@ -236,6 +246,133 @@ export const sendBookingConfirmationEmail = async (
 		});
 	} catch (e) {
 		console.error("sendBookingConfirmationEmail: failed to send guest confirmation", e);
+	}
+};
+
+export type CancellationDetails = {
+	guestName: string;
+	guestEmail: string;
+	checkIn: string;
+	checkOut: string;
+	// Cents, matching reservations.amountTotal — only meaningful when
+	// `refunded` is true (the amount actually returned); ignored otherwise,
+	// since an unrefunded cancellation never charged the guest anything.
+	amountTotal: number;
+	refunded: boolean;
+};
+
+const cancellationHtml = (details: CancellationDetails): string => {
+	const checkIn = dayjs(details.checkIn).format("MMM D, YYYY");
+	const checkOut = dayjs(details.checkOut).format("MMM D, YYYY");
+	const amount = (details.amountTotal / 100).toFixed(2);
+
+	return emailShell(`
+		<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">Reservation cancelled</p>
+		<p style="margin:0 0 24px;font-size:15px;color:#333333;line-height:1.5;">
+			Hi ${escapeHtml(details.guestName)}, your reservation has been cancelled.
+			${details.refunded ? "A full refund has been issued to your original payment method." : "You were not charged."}
+		</p>
+		<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:15px;">
+			${emailDetailRow("Dates", `${checkIn} &ndash; ${checkOut}`, !details.refunded)}
+			${details.refunded ? emailDetailRow("Refunded", `$${amount}`, true) : ""}
+		</table>
+		<p style="margin:24px 0 0;font-size:15px;color:#333333;line-height:1.5;">
+			${
+				details.refunded
+					? "Refunds typically take 5&ndash;10 business days to appear, depending on your bank."
+					: "Questions about this cancellation? Just reply to this email."
+			}
+		</p>
+	`);
+};
+
+// Sent straight to the guest, same reasoning as sendBookingConfirmationEmail
+// above (replyTo since NOTIFICATION_FROM_EMAIL is send-only; never throws so
+// a failed send can't break the cancel/refund action that triggered it).
+// `refunded` picks the wording rather than needing a separate function per
+// outcome — the guest-facing shape is otherwise identical either way. Two
+// callers, both gated to a reservation that was CONFIRMED (paid) before
+// cancelling, never a still-pending hold — a guest who never finished
+// booking shouldn't get a "your reservation was cancelled" email for
+// something they never completed: admin-cancel-reservation.mts (admin-
+// initiated) and cancel-my-reservation.mts (guest self-service). In practice
+// this means refunded is always true from both — a confirmed reservation
+// always has a payment to refund, and a failed refund attempt aborts before
+// reaching this call at all — the false branch exists for a
+// still-charged-nothing outcome should one ever route here, not dead code so
+// much as not-yet-exercised.
+export const sendCancellationEmail = async (details: CancellationDetails): Promise<void> => {
+	try {
+		const settings = await getSettings();
+		const replyTo = parseNotificationEmails(settings?.notificationEmails);
+
+		const subject = details.refunded
+			? "Your Cabin Between Rivers reservation was cancelled and refunded"
+			: "Your Cabin Between Rivers reservation was cancelled";
+		const text = [
+			`Hi ${details.guestName},`,
+			"",
+			`Your reservation has been cancelled. ${
+				details.refunded
+					? "A full refund has been issued to your original payment method."
+					: "You were not charged."
+			}`,
+			`Dates: ${details.checkIn} to ${details.checkOut}`,
+			...(details.refunded ? [`Refunded: $${(details.amountTotal / 100).toFixed(2)}`] : []),
+			"",
+			details.refunded
+				? "Refunds typically take 5-10 business days to appear, depending on your bank."
+				: "Questions about this cancellation? Just reply to this email.",
+		].join("\n");
+
+		await sendEmail({
+			to: [details.guestEmail],
+			subject,
+			text,
+			html: cancellationHtml(details),
+			replyTo,
+		});
+	} catch (e) {
+		console.error("sendCancellationEmail: failed to send guest cancellation notice", e);
+	}
+};
+
+export type GuestCancellationDetails = {
+	reservationId: number;
+	guestName: string;
+	guestEmail: string;
+	checkIn: string;
+	checkOut: string;
+	amountTotal: number;
+};
+
+// Admin-facing counterpart to sendCancellationEmail above — fires only when
+// the GUEST initiates their own cancellation (cancel-my-reservation.mts),
+// since an admin-initiated one already means the admin was there for it.
+// Plain text like notifyDoubleBooking below, not the full HTML card
+// treatment — this is an ops alert (money just left without the admin's own
+// action), not a guest-facing surface. Never throws — same contract as every
+// other notify* function here: a failed/unconfigured alert must never break
+// the refund that already went through.
+export const notifyGuestCancellation = async (details: GuestCancellationDetails): Promise<void> => {
+	try {
+		const settings = await getSettings();
+		const recipients = parseNotificationEmails(settings?.notificationEmails);
+		if (recipients.length === 0) return;
+
+		const subject = `Guest cancelled reservation #${details.reservationId}`;
+		const text = [
+			"A guest cancelled their own reservation and was refunded in full.",
+			`Reservation ID: #${details.reservationId}`,
+			`Guest: ${details.guestName} (${details.guestEmail})`,
+			`Dates: ${details.checkIn} to ${details.checkOut}`,
+			`Refunded: $${(details.amountTotal / 100).toFixed(2)}`,
+			"View it in /admin.",
+		].join("\n");
+
+		await sendEmail({ to: recipients, subject, text });
+	} catch (e) {
+		console.error("notifyGuestCancellation: failed to send notification", e);
 	}
 };
 

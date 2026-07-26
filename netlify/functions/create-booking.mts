@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
+import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import {
 	computeTotalCentsWithOverrides,
 	createBookingSchema,
@@ -21,7 +20,7 @@ import { getPriceOverridesForRange } from "../../lib/priceOverrides";
 // Airbnb/Vrbo overlap and admin-created manual blocks are checked here.
 // Returns the reservation id + amount, which the (later) Stripe step will
 // charge.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("create-booking", async (req, _context) => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
 
@@ -80,4 +79,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("create-booking failed", e);
 		return error("Could not create booking", 500);
 	}
-};
+});

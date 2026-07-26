@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, requireMethod, withErrorHandling } from "../../lib/http";
 import { getReservationById } from "../../lib/availability";
 
 const querySchema = z.coerce.number().int().positive();
@@ -9,7 +8,7 @@ const querySchema = z.coerce.number().int().positive();
 // Used by the confirmation page to poll for the webhook flipping a reservation to
 // `confirmed`. Deliberately returns ONLY the status — this endpoint takes a raw,
 // guessable id with no auth, so guest name/email/amount must never be exposed here.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("reservation-status", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
@@ -21,4 +20,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	if (!reservation) return error("Reservation not found", 404);
 
 	return json({ status: reservation.status });
-};
+});

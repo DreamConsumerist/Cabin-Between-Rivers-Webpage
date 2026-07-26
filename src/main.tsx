@@ -4,7 +4,10 @@ import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
 import { queryClient } from "./queryClient";
 import { routeTree } from "./routeTree.gen.ts";
+import { initSentry } from "./sentry";
 import "./styles/tailwind.css";
+
+initSentry();
 
 const router = createRouter({
 	routeTree,

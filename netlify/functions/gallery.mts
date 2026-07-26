@@ -1,10 +1,9 @@
-import type { Context } from "@netlify/functions";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, requireMethod, withErrorHandling } from "../../lib/http";
 import { listGalleryPhotos } from "../../lib/gallery";
 
 // GET /api/gallery -> the About page's photo list, in display order. Public —
 // no admin session required.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("gallery", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
@@ -23,4 +22,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("gallery failed", e);
 		return error("Failed to load gallery", 500);
 	}
-};
+});

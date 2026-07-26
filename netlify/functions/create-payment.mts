@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody, requireMethod } from "../../lib/http";
+import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import { getReservationById } from "../../lib/availability";
 import { getStripe } from "../../lib/stripe";
 
@@ -12,7 +11,7 @@ const bodySchema = z.object({ reservationId: z.number().int().positive() });
 // create-booking), never from the client. Confirmation happens via stripe-webhook,
 // not this response — the browser only uses the returned clientSecret to mount
 // Stripe's embedded checkout UI.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("create-payment", async (req, _context) => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
 
@@ -70,4 +69,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("create-payment failed", e);
 		return error("Could not start payment", 500);
 	}
-};
+});

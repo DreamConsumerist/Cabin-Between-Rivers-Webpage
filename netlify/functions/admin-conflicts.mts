@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { getConflictById, listConflicts, reopenConflict, resolveConflict } from "../../lib/conflicts";
 
@@ -39,7 +38,7 @@ const handleUpdate = async (req: Request): Promise<Response> => {
 // conflict list (see lib/conflicts.ts). Both methods require an admin
 // session. No POST/DELETE — conflicts are only ever system-created, never
 // admin-created or deleted.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("admin-conflicts", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -56,4 +55,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("admin-conflicts failed", e);
 		return error("Request failed", 500);
 	}
-};
+});

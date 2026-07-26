@@ -28,18 +28,20 @@ export const icalFormSchema = z.object({
 export type IcalFormInput = z.input<typeof icalFormSchema>;
 export type IcalFormValues = z.output<typeof icalFormSchema>;
 
+// Kept as one comma-separated string (matches settings.notificationEmails) —
+// parsed into a list server-side, not here.
+const commaSeparatedEmails = z
+	.string()
+	.trim()
+	.optional()
+	.or(z.literal(""))
+	.refine(
+		(value) => !value || value.split(",").every((part) => EMAIL_REGEX.test(part.trim())),
+		"Enter a comma-separated list of valid email addresses"
+	);
+
 export const notificationsFormSchema = z.object({
-	// Kept as one comma-separated string (matches settings.notificationEmails)
-	// — parsed into a list server-side, not here.
-	notificationEmails: z
-		.string()
-		.trim()
-		.optional()
-		.or(z.literal(""))
-		.refine(
-			(value) => !value || value.split(",").every((part) => EMAIL_REGEX.test(part.trim())),
-			"Enter a comma-separated list of valid email addresses"
-		),
+	notificationEmails: commaSeparatedEmails,
 });
 
 export type NotificationsFormInput = z.input<typeof notificationsFormSchema>;

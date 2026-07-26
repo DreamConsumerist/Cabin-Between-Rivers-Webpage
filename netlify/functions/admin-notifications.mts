@@ -1,6 +1,5 @@
-import type { Context } from "@netlify/functions";
 import { z } from "zod";
-import { error, json, parseJsonBody } from "../../lib/http";
+import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { getSettings, updateNotificationEmails } from "../../lib/availability";
 
@@ -12,12 +11,14 @@ const updateSchema = z.object({
 	notificationEmails: z.string().trim().or(z.literal("")),
 });
 
-// GET/PUT /api/admin-notifications — the recipient list (see lib/mailer.ts)
-// for the booking-confirmed and double-booking-warning emails, behind the
-// settings table (see db/schema.ts). Split out from admin-ical.mts since these
-// recipients aren't specific to the iCal sync — a new site booking triggers
-// the same list. Both methods require an admin session.
-export default async (req: Request, _context: Context): Promise<Response> => {
+// GET/PUT /api/admin-notifications — the business-facing recipient list (see
+// lib/mailer.ts) behind the settings table (see db/schema.ts): booking-
+// confirmed notices, double-booking warnings, and guest replies. Split out
+// from admin-ical.mts since these recipients aren't specific to the iCal
+// sync — a new site booking triggers the same list. Developer-facing error
+// alerts go through Sentry instead (see lib/sentry.ts). Both methods require
+// an admin session.
+export default withErrorHandling("admin-notifications", async (req, _context) => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
 
@@ -37,9 +38,11 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 				400
 			);
 
-		const updated = await updateNotificationEmails(parsed.data.notificationEmails || null);
+		const updated = await updateNotificationEmails({
+			notificationEmails: parsed.data.notificationEmails || null,
+		});
 		return json({ notificationEmails: updated.notificationEmails ?? "" });
 	}
 
 	return error("Method not allowed", 405);
-};
+});

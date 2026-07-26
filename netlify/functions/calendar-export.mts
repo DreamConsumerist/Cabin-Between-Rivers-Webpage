@@ -1,6 +1,6 @@
-import type { Context } from "@netlify/functions";
 import { constantTimeEquals } from "../../lib/adminAuth";
 import { getExportableBlocks, getSettings } from "../../lib/availability";
+import { withErrorHandling } from "../../lib/http";
 import { buildBlocksIcs } from "../../lib/icalExport";
 
 // GET /api/calendar-export.ics?token=... (also reachable as /api/calendar-export
@@ -13,7 +13,7 @@ import { buildBlocksIcs } from "../../lib/icalExport";
 // "nothing here". Must call plain getSettings(), never getOrCreateExportToken
 // — an unauthenticated request must never be able to mint a token as a side
 // effect.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("calendar-export", async (req, _context) => {
 	if (req.method !== "GET") return new Response("Not found", { status: 404 });
 
 	const token = new URL(req.url).searchParams.get("token") ?? "";
@@ -35,4 +35,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 			"cache-control": "no-store",
 		},
 	});
-};
+});

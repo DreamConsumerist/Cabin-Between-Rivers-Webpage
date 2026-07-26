@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Context } from "@netlify/functions";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, requireMethod, withErrorHandling } from "../../lib/http";
 import { getReservationById, setReservationIdPhoto } from "../../lib/availability";
 import { deleteIdPhotoBlob, putIdPhotoBlob } from "../../lib/blobs";
 
@@ -12,7 +11,7 @@ const MAX_BYTES = 10 * 1024 * 1024;
 // still-pending reservation. Guest-facing, no admin session — reservationId
 // is the only credential, so setReservationIdPhoto only ever touches a row
 // that's still `pending` (not someone else's already-confirmed booking).
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("upload-id-photo", async (req, _context) => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
 
@@ -64,4 +63,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("upload-id-photo failed", e);
 		return error("Could not upload ID", 500);
 	}
-};
+});

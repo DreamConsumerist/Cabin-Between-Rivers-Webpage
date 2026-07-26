@@ -1,18 +1,18 @@
-import type { Context } from "@netlify/functions";
 import type Stripe from "stripe";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/client";
 import { processedWebhookEvents, reservations } from "../../db/schema";
 import { getReservationById, isOverlapError } from "../../lib/availability";
 import { flagDoubleBooking } from "../../lib/conflicts";
-import { error, json } from "../../lib/http";
+import { error, json, withErrorHandling } from "../../lib/http";
 import { notifyBookingConfirmed, sendBookingConfirmationEmail } from "../../lib/mailer";
+import { reportCritical } from "../../lib/sentry";
 import { getStripe, getWebhookSecret } from "../../lib/stripe";
 
 // POST /.netlify/functions/stripe-webhook (not proxied through /api/* — keep the
 // raw Stripe-facing path so nothing rewrites the request body before we read it).
 // Source of truth for payment confirmation: never trust the browser return_url.
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("stripe-webhook", async (req, _context) => {
 	if (req.method !== "POST") return error("Method not allowed", 405);
 
 	const signature = req.headers.get("stripe-signature");
@@ -97,6 +97,12 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 						idPhotoUrl: reservation.idPhotoBlobKey
 							? `${new URL(req.url).origin}/api/admin-id-photo?reservationId=${reservation.id}`
 							: null,
+						// cancellationToken is guaranteed here — this reservation was
+						// just inserted by create-booking.mts (the only inserter),
+						// which always mints one (see insertPendingReservation). Only
+						// pre-migration rows can lack it, and those never reach a
+						// fresh confirmation.
+						cancellationUrl: `${new URL(req.url).origin}/booking/cancel?reservationId=${reservation.id}&token=${reservation.cancellationToken}`,
 					};
 					await notifyBookingConfirmed(details);
 					await sendBookingConfirmationEmail(details);
@@ -110,6 +116,11 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 					// but this needs a human to reconcile/refund.
 					console.error(
 						`stripe-webhook: CRITICAL — payment succeeded for reservation ${reservationId} (event ${event.id}) but its dates are no longer available; needs manual refund/reconciliation`,
+						e
+					);
+					await reportCritical(
+						"Payment succeeded but reservation dates were rebooked before webhook landed",
+						{ reservationId, stripeEventId: event.id },
 						e
 					);
 					const reservation = await getReservationById(reservationId);
@@ -139,4 +150,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		.onConflictDoNothing({ target: processedWebhookEvents.eventId });
 
 	return json({ received: true });
-};
+});

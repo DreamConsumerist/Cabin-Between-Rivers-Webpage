@@ -1,5 +1,4 @@
-import type { Context } from "@netlify/functions";
-import { error, json, requireMethod } from "../../lib/http";
+import { error, json, requireMethod, withErrorHandling } from "../../lib/http";
 import { getBlockedRanges, getSettings } from "../../lib/availability";
 import { listPriceOverrides } from "../../lib/priceOverrides";
 
@@ -8,7 +7,7 @@ import { listPriceOverrides } from "../../lib/priceOverrides";
 // `pricing` + `priceOverrides` to show an estimated total before the guest
 // commits to a booking. Only the public-facing settings fields are returned
 // (never the iCal source URLs).
-export default async (req: Request, _context: Context): Promise<Response> => {
+export default withErrorHandling("check-availability", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
@@ -38,4 +37,4 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		console.error("check-availability failed", e);
 		return error("Failed to load availability", 500);
 	}
-};
+});
