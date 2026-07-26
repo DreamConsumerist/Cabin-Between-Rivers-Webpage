@@ -7,6 +7,8 @@ const updateSchema = z.object({
 	nightlyRate: z.number().int().min(0),
 	cleaningFee: z.number().int().min(0),
 	minNights: z.number().int().min(1),
+	baseOccupancy: z.number().int().min(1),
+	extraGuestFee: z.number().int().min(0),
 });
 
 // GET/PUT /api/admin-settings — the default pricing config behind the
@@ -30,6 +32,8 @@ export default withErrorHandling("admin-settings", async (req, _context) => {
 			nightlyRate: parsed.data.nightlyRate,
 			cleaningFee: parsed.data.cleaningFee,
 			minNights: parsed.data.minNights,
+			baseOccupancy: parsed.data.baseOccupancy,
+			extraGuestFee: parsed.data.extraGuestFee,
 		});
 		return json({ settings });
 	}

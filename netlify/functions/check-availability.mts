@@ -24,6 +24,8 @@ export default withErrorHandling("check-availability", async (req, _context) => 
 						nightlyRate: settings.nightlyRate,
 						cleaningFee: settings.cleaningFee,
 						minNights: settings.minNights,
+						baseOccupancy: settings.baseOccupancy,
+						extraGuestFee: settings.extraGuestFee,
 					}
 				: null,
 			priceOverrides: overrides.map((o) => ({

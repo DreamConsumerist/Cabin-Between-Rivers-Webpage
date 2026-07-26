@@ -5,6 +5,16 @@ import { About } from "../pages/About";
 
 export const Route = createFileRoute("/about")({
 	component: About,
+	head: () => ({
+		meta: [
+			{ title: "About | Cabin Between Rivers" },
+			{
+				name: "description",
+				content:
+					"See photos, amenities, and house rules for Cabin Between Rivers — a two-bedroom riverside cabin with a wraparound deck and wood-burning stove.",
+			},
+		],
+	}),
 	// Fires on navigation, and earlier on link-hover/focus thanks to the
 	// router's `defaultPreload: "intent"` — fetches the photo list into the
 	// same query cache `useGalleryPhotos` reads from, then preloads the images

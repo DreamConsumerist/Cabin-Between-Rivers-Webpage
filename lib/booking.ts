@@ -62,16 +62,29 @@ export const TAX_RATE = 0.03;
 export const taxCentsFor = (subtotalCents: number): number =>
 	Math.round(subtotalCents * TAX_RATE);
 
+// Surcharge for guests beyond the base occupancy — a flat per-guest fee
+// (settings.extraGuestFee, cents) for each guest past settings.baseOccupancy,
+// charged once for the whole stay (not per night).
+export const extraGuestFeeCents = (
+	guests: number,
+	baseOccupancy: number,
+	extraGuestFeeCentsPerGuest: number
+): number => Math.max(0, guests - baseOccupancy) * extraGuestFeeCentsPerGuest;
+
 // Subtotal in cents for a stay, summing each night's rate (default or
-// overridden) plus the flat cleaning fee. All money inputs are cents.
+// overridden) plus the flat cleaning fee and any extra-guest surcharge. All
+// money inputs are cents.
 export const computeSubtotalCentsWithOverrides = (
 	checkIn: string,
 	checkOut: string,
 	defaultRateCents: number,
 	cleaningFeeCents: number,
-	overrides: Array<PriceOverrideRange>
+	overrides: Array<PriceOverrideRange>,
+	guests: number,
+	baseOccupancy: number,
+	extraGuestFeeCentsPerGuest: number
 ): number => {
-	let subtotal = cleaningFeeCents;
+	let subtotal = cleaningFeeCents + extraGuestFeeCents(guests, baseOccupancy, extraGuestFeeCentsPerGuest);
 	let night = dayjs(checkIn);
 	const end = dayjs(checkOut);
 	while (night.isBefore(end, "day")) {
@@ -81,20 +94,27 @@ export const computeSubtotalCentsWithOverrides = (
 	return subtotal;
 };
 
-// Total price in cents for a stay: subtotal (nights + cleaning fee) plus tax.
+// Total price in cents for a stay: subtotal (nights + cleaning fee + extra-
+// guest surcharge) plus tax.
 export const computeTotalCentsWithOverrides = (
 	checkIn: string,
 	checkOut: string,
 	defaultRateCents: number,
 	cleaningFeeCents: number,
-	overrides: Array<PriceOverrideRange>
+	overrides: Array<PriceOverrideRange>,
+	guests: number,
+	baseOccupancy: number,
+	extraGuestFeeCentsPerGuest: number
 ): number => {
 	const subtotal = computeSubtotalCentsWithOverrides(
 		checkIn,
 		checkOut,
 		defaultRateCents,
 		cleaningFeeCents,
-		overrides
+		overrides,
+		guests,
+		baseOccupancy,
+		extraGuestFeeCentsPerGuest
 	);
 	return subtotal + taxCentsFor(subtotal);
 };

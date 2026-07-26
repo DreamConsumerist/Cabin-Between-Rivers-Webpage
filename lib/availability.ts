@@ -167,6 +167,8 @@ export type PricingUpdate = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
+	baseOccupancy: number;
+	extraGuestFee: number;
 };
 
 // The settings table is always a single row (see db/schema.ts) — update it if

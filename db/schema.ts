@@ -135,6 +135,11 @@ export const settings = pgTable("settings", {
 	nightlyRate: integer("nightly_rate").notNull().default(0),
 	cleaningFee: integer("cleaning_fee").notNull().default(0),
 	minNights: integer("min_nights").notNull().default(1),
+	// Extra-guest surcharge: guests beyond baseOccupancy each add
+	// extraGuestFee (cents) to the subtotal — see
+	// lib/booking.ts's extraGuestFeeCents.
+	baseOccupancy: integer("base_occupancy").notNull().default(4),
+	extraGuestFee: integer("extra_guest_fee").notNull().default(2500),
 	airbnbIcalUrl: text("airbnb_ical_url"),
 	vrboIcalUrl: text("vrbo_ical_url"),
 	// Comma-separated recipient list (see lib/mailer.ts), parsed into a

@@ -10,4 +10,9 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/booking_/confirmation")({
 	component: BookingConfirmation,
 	validateSearch: searchSchema,
+	// Personal/transactional — keyed to one guest's reservationId/sessionId,
+	// not something a search result should ever point at.
+	head: () => ({
+		meta: [{ name: "robots", content: "noindex" }],
+	}),
 });

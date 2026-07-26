@@ -58,13 +58,21 @@ export const TAX_RATE = 0.03;
 export const taxCentsFor = (subtotalCents: number): number =>
 	Math.round(subtotalCents * TAX_RATE);
 
+// Mirrors lib/booking.ts's extraGuestFeeCents — the server is authoritative;
+// this is only for the client-side estimate. `guests` defaults to 0 (guest
+// count isn't known yet on the dates step, before BookingForm collects it),
+// which always yields no surcharge regardless of pricing.baseOccupancy.
+export const estimatedExtraGuestFeeCents = (pricing: Pricing, guests = 0): number =>
+	Math.max(0, guests - pricing.baseOccupancy) * pricing.extraGuestFee;
+
 export const computeEstimatedSubtotalCents = (
 	checkIn: Dayjs,
 	checkOut: Dayjs,
 	pricing: Pricing,
-	overrides: Array<PriceOverride>
+	overrides: Array<PriceOverride>,
+	guests = 0
 ): number => {
-	let subtotal = pricing.cleaningFee;
+	let subtotal = pricing.cleaningFee + estimatedExtraGuestFeeCents(pricing, guests);
 	let night = checkIn;
 	while (night.isBefore(checkOut, "day")) {
 		subtotal += nightlyRateForDate(night, pricing.nightlyRate, overrides);
@@ -77,9 +85,10 @@ export const computeEstimatedTotalCents = (
 	checkIn: Dayjs,
 	checkOut: Dayjs,
 	pricing: Pricing,
-	overrides: Array<PriceOverride>
+	overrides: Array<PriceOverride>,
+	guests = 0
 ): number => {
-	const subtotal = computeEstimatedSubtotalCents(checkIn, checkOut, pricing, overrides);
+	const subtotal = computeEstimatedSubtotalCents(checkIn, checkOut, pricing, overrides, guests);
 	return subtotal + taxCentsFor(subtotal);
 };
 

@@ -10,4 +10,9 @@ const searchSchema = z.object({
 export const Route = createFileRoute("/booking_/cancel")({
 	component: CancelReservation,
 	validateSearch: searchSchema,
+	// Personal/transactional and token-gated — same reasoning as
+	// booking_.confirmation.ts's noindex.
+	head: () => ({
+		meta: [{ name: "robots", content: "noindex" }],
+	}),
 });

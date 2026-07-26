@@ -10,6 +10,8 @@ export type Pricing = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
+	baseOccupancy: number;
+	extraGuestFee: number;
 };
 
 export type PriceOverride = {

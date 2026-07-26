@@ -4,7 +4,37 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <title>Cabin Between Rivers</title>
+    <link rel="canonical" href="https://cabinbetweenrivers.com/" />
+    <title>Cabin Between Rivers | Riverside Cabin Rental</title>
+
+    <!-- Static, site-wide fallback for link-preview scrapers (iMessage, Slack,
+    Facebook, etc.) that don't execute JS and so never see the per-route tags
+    TanStack Router's HeadContent injects after hydration. Generic across
+    every route rather than page-specific by design — see SETUP.md.
+
+    Deliberately no plain <meta name="description"> here: every route's
+    head() already renders one via HeadContent, and since React only dedupes
+    against tags it rendered itself (not this static shell), a second static
+    copy here would sit alongside the per-route one instead of being
+    replaced by it — Google would then see two, in the wrong order on every
+    non-home route. og:description/twitter:description below don't have that
+    conflict since head() never emits those. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Cabin Between Rivers" />
+    <meta property="og:title" content="Cabin Between Rivers | Riverside Cabin Rental" />
+    <meta
+      property="og:description"
+      content="Book a stay at Cabin Between Rivers, a riverside cabin retreat with a wraparound deck, wood-burning stove, and full kitchen."
+    />
+    <meta property="og:url" content="https://cabinbetweenrivers.com/" />
+    <meta property="og:image" content="https://cabinbetweenrivers.com/og-image.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Cabin Between Rivers | Riverside Cabin Rental" />
+    <meta
+      name="twitter:description"
+      content="Book a stay at Cabin Between Rivers, a riverside cabin retreat with a wraparound deck, wood-burning stove, and full kitchen."
+    />
+    <meta name="twitter:image" content="https://cabinbetweenrivers.com/og-image.jpg" />
   </head>
   <body>
     <div id="root"></div>

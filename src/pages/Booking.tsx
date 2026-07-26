@@ -11,6 +11,7 @@ import { cancelReservation, type CreateBookingResult } from "../features/booking
 import {
 	buildNightlyBreakdown,
 	computeEstimatedSubtotalCents,
+	estimatedExtraGuestFeeCents,
 	formatCents,
 	taxCentsFor,
 	toIsoDate,
@@ -61,6 +62,18 @@ export const Booking = (): FunctionComponent => {
 			? computeEstimatedSubtotalCents(checkIn, checkOut, pricing, priceOverrides)
 			: 0;
 	const estimatedTax = taxCentsFor(estimatedSubtotal);
+
+	// Guest count isn't known until the "details" step, so this recomputes the
+	// estimate live as the guest count changes there — the "dates" step summary
+	// above deliberately omits the extra-guest surcharge (see
+	// estimatedExtraGuestFeeCents's guests=0 default).
+	const detailsGuests = Number(guestDetails?.guests) || 0;
+	const detailsSubtotal =
+		checkIn && checkOut && pricing
+			? computeEstimatedSubtotalCents(checkIn, checkOut, pricing, priceOverrides, detailsGuests)
+			: 0;
+	const detailsExtraGuestFee = pricing ? estimatedExtraGuestFeeCents(pricing, detailsGuests) : 0;
+	const detailsTax = taxCentsFor(detailsSubtotal);
 
 	const resetToDates = useCallback(() => {
 		setStep("dates");
@@ -316,6 +329,12 @@ export const Booking = (): FunctionComponent => {
 									<span>Total</span>
 									<span>{formatCents(estimatedSubtotal + estimatedTax)}</span>
 								</div>
+								{pricing.extraGuestFee > 0 && (
+									<p className="mt-2 text-xs text-neutral-500">
+										+{formatCents(pricing.extraGuestFee)} per guest after{" "}
+										{pricing.baseOccupancy} guests
+									</p>
+								)}
 							</div>
 						)}
 						<Button
@@ -342,6 +361,20 @@ export const Booking = (): FunctionComponent => {
 							onChange={handleGuestDetailsChange}
 							onSubmit={handleGuestSubmit}
 						/>
+						{pricing && (
+							<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
+								{detailsExtraGuestFee > 0 && (
+									<div className="flex justify-between text-neutral-600">
+										<span>Extra guest fee</span>
+										<span>{formatCents(detailsExtraGuestFee)}</span>
+									</div>
+								)}
+								<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
+									<span>Total</span>
+									<span>{formatCents(detailsSubtotal + detailsTax)}</span>
+								</div>
+							</div>
+						)}
 					</div>
 				)}
 

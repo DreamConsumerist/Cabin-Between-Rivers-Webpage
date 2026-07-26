@@ -59,7 +59,10 @@ export default withErrorHandling("create-booking", async (req, _context) => {
 			input.checkOut,
 			config.nightlyRate,
 			config.cleaningFee,
-			overrides
+			overrides,
+			input.guests,
+			config.baseOccupancy,
+			config.extraGuestFee
 		);
 
 		const reservation = await insertPendingReservation({ ...input, amountTotal });

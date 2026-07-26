@@ -13,6 +13,8 @@ export const settingsFormSchema = z.object({
 	nightlyRate: z.coerce.number().min(0, "Must be 0 or more"),
 	cleaningFee: z.coerce.number().min(0, "Must be 0 or more"),
 	minNights: z.coerce.number().int().min(1, "Must be at least 1"),
+	baseOccupancy: z.coerce.number().int().min(1, "Must be at least 1"),
+	extraGuestFee: z.coerce.number().min(0, "Must be 0 or more"),
 });
 
 export type SettingsFormInput = z.input<typeof settingsFormSchema>;

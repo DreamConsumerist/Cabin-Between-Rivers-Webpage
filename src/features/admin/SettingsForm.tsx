@@ -35,6 +35,8 @@ export const SettingsForm = (): FunctionComponent => {
 			nightlyRate: centsToDollars(settings.nightlyRate),
 			cleaningFee: centsToDollars(settings.cleaningFee),
 			minNights: settings.minNights,
+			baseOccupancy: settings.baseOccupancy,
+			extraGuestFee: centsToDollars(settings.extraGuestFee),
 		});
 	}, [data, reset]);
 
@@ -51,6 +53,8 @@ export const SettingsForm = (): FunctionComponent => {
 						nightlyRate: dollarsToCents(values.nightlyRate),
 						cleaningFee: dollarsToCents(values.cleaningFee),
 						minNights: values.minNights,
+						baseOccupancy: values.baseOccupancy,
+						extraGuestFee: dollarsToCents(values.extraGuestFee),
 					});
 				})}
 			>
@@ -85,6 +89,21 @@ export const SettingsForm = (): FunctionComponent => {
 					type="number"
 					{...register("minNights")}
 					error={errors.minNights?.message}
+				/>
+				<TextField
+					label="Guests included before extra fee"
+					min={1}
+					type="number"
+					{...register("baseOccupancy")}
+					error={errors.baseOccupancy?.message}
+				/>
+				<TextField
+					label="Extra guest fee ($ per guest)"
+					min={0}
+					step="0.01"
+					type="number"
+					{...register("extraGuestFee")}
+					error={errors.extraGuestFee?.message}
 				/>
 				{update.isError && <p className="text-sm text-red-600">{update.error.message}</p>}
 				{update.isSuccess && <p className="text-sm text-green-700">Settings saved.</p>}

@@ -5,6 +5,8 @@ export type AdminSettings = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
+	baseOccupancy: number;
+	extraGuestFee: number;
 	airbnbIcalUrl: string | null;
 	vrboIcalUrl: string | null;
 };
@@ -13,6 +15,8 @@ export type SettingsInput = {
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
+	baseOccupancy: number;
+	extraGuestFee: number;
 };
 
 export const fetchAdminMe = (): Promise<{ authenticated: boolean }> =>

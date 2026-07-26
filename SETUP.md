@@ -467,3 +467,22 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   anything technical. If this needs real teeth, options are a separate deposit `PaymentIntent` with
   `capture_method: "manual"` (authorize at booking, capture only if needed, release otherwise) or a
   flat additional deposit charged and refunded automatically after checkout.
+
+- **SEO: technical foundation done, submission + real business info still open** — the technical
+  foundation and structured-data slice is in: per-route `<title>`/`<meta description>` (via TanStack
+  Router's `head` route option + `<HeadContent />` in `RootLayout.tsx` — works with no SSR since React 19
+  hoists `<title>`/`<meta>`/`<link>` rendered anywhere in the tree into `document.head`), a real static
+  title/description/canonical/OG/Twitter-card fallback in `index.html` for non-JS link-preview scrapers
+  (iMessage, Slack, Facebook, etc. never run JS, so they only ever see the raw HTML — see that file's
+  comment for why the plain `description` meta specifically had to stay out of the static shell to avoid
+  colliding with the per-route one), `LodgingBusiness` JSON-LD on `/` (`src/routes/index.ts`), and
+  `public/robots.txt` + `public/sitemap.xml`. `/admin`, `/booking/confirmation`, and `/booking/cancel` all
+  set `noindex` via the same `head()` mechanism (transactional/gated pages, not `/admin` alone).
+
+  Still open: (1) the JSON-LD deliberately omits `address`/`telephone`/`priceRange` — blocked on the same
+  placeholder business info as `Footer.tsx`'s `hello@example.com` and the guest-email-detail item above;
+  fill those in together once real property info exists. (2) Submitting the site + sitemap to Google
+  Search Console and Bing Webmaster Tools — deliberately not done yet, now that the metadata behind it is
+  real instead of a thin/duplicate-titled shell. (3) The OG image (`public/og-image.jpg`, reused from
+  `hero.jpg`) is a 2600×910 banner crop, notably wider than OG's recommended ~1200×630 — link-preview
+  crops may look odd until it's re-cropped closer to that ratio.
