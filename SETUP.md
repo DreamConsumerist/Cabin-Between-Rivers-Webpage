@@ -46,7 +46,8 @@ Reference: the full technical plan lives at
   meantime. The `/admin` Conflicts tab lists open/resolved conflicts and lets you mark one resolved
   or, for one tied to a live reservation, cancel & refund it directly (auto-marking the conflict
   resolved). If `RESEND_API_KEY`/`NOTIFICATION_FROM_EMAIL` are set (see "Later phases" below), the
-  admin's configured address(es) also get emailed when a conflict is flagged.
+  address(es) configured on the `/admin` Notifications tab also get emailed when a conflict is
+  flagged, and whenever a booking made directly on the site is confirmed.
 - ✅ Admin Bookings tab: alongside the existing list, a month-at-a-glance calendar
   (`src/features/admin/BookingsCalendar.tsx`) tints each reservation's nights by status
   (pending/confirmed), shows the guest's name on their check-in day, highlights a reservation's

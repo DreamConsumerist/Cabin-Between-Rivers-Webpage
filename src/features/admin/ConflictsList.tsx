@@ -2,7 +2,8 @@ import { useState } from "react";
 import dayjs from "dayjs";
 import type { FunctionComponent } from "../../common/types";
 import { Button } from "../../components/ui/Button";
-import { formatCents } from "../booking/dateUtilities";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
+import { cancelConfirmMessage } from "./cancelConfirmMessage";
 import type { AdminBooking, Conflict, DoubleBookingSource } from "./api";
 import {
 	useAdminBookings,
@@ -25,15 +26,11 @@ const formatDate = (iso: string): string => dayjs(iso).format("MMM D, YYYY");
 
 type Filter = "open" | "resolved" | "all";
 
-const cancelConfirmMessage = (reservation: AdminBooking): string =>
-	reservation.status === "confirmed"
-		? `Cancel reservation #${reservation.id} (${reservation.guestName}) and refund ${formatCents(reservation.amountTotal)}? This cannot be undone.`
-		: `Cancel reservation #${reservation.id} (${reservation.guestName})? Nothing has been charged yet. This cannot be undone.`;
-
 type ConflictRowProps = { conflict: Conflict; reservation: AdminBooking | undefined };
 
 const ConflictRow = ({ conflict, reservation }: ConflictRowProps): FunctionComponent => {
 	const [note, setNote] = useState("");
+	const [confirmingCancel, setConfirmingCancel] = useState(false);
 	const resolve = useResolveConflict();
 	const reopen = useReopenConflict();
 	const cancelReservation = useAdminCancelReservation();
@@ -42,86 +39,98 @@ const ConflictRow = ({ conflict, reservation }: ConflictRowProps): FunctionCompo
 	const canCancel = reservation && (reservation.status === "confirmed" || reservation.status === "pending");
 
 	return (
-		<li className="flex flex-col gap-2 rounded-xl border border-neutral-200 p-4">
-			<div className="flex flex-wrap items-center gap-2">
-				<span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-					{SOURCE_LABEL[conflict.source]}
-				</span>
-				<span className="text-sm text-neutral-700">
-					{formatDate(conflict.checkIn)} – {formatDate(conflict.checkOut)}
-				</span>
-				{reservation && (
-					<span className="text-sm text-neutral-500">
-						· Reservation #{reservation.id} ({reservation.guestName}) · {reservation.status}
+		<>
+			<li className="flex flex-col gap-2 rounded-xl border border-neutral-200 p-4">
+				<div className="flex flex-wrap items-center gap-2">
+					<span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
+						{SOURCE_LABEL[conflict.source]}
 					</span>
-				)}
-			</div>
-			<p className="text-sm text-neutral-600">{conflict.detail}</p>
-
-			{resolved ? (
-				<div className="flex flex-wrap items-center gap-3 text-sm text-neutral-500">
-					<span>Resolved {conflict.resolvedAt && formatDate(conflict.resolvedAt)}</span>
-					{conflict.resolutionNote && <span>· {conflict.resolutionNote}</span>}
-					<Button
-						className="px-3 py-1.5 text-sm"
-						disabled={reopen.isPending}
-						type="button"
-						variant="secondary"
-						onClick={() => {
-							reopen.mutate(conflict.id);
-						}}
-					>
-						Reopen
-					</Button>
-				</div>
-			) : (
-				<div className="flex flex-wrap items-end gap-2">
-					<textarea
-						className="min-w-48 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-400"
-						placeholder="Resolution note (optional)"
-						rows={1}
-						value={note}
-						onChange={(event) => {
-							setNote(event.target.value);
-						}}
-					/>
-					<Button
-						className="px-3 py-1.5 text-sm"
-						disabled={resolve.isPending}
-						type="button"
-						variant="secondary"
-						onClick={() => {
-							resolve.mutate({ id: conflict.id, note });
-						}}
-					>
-						Mark resolved
-					</Button>
-					{canCancel && reservation && (
-						<Button
-							className="px-3 py-1.5 text-sm"
-							disabled={cancelReservation.isPending}
-							type="button"
-							onClick={() => {
-								if (!confirm(cancelConfirmMessage(reservation))) return;
-								cancelReservation.mutate(reservation.id, {
-									onSuccess: () => {
-										resolve.mutate({
-											id: conflict.id,
-											note: "Auto-resolved: reservation cancelled and refunded via admin tool.",
-										});
-									},
-								});
-							}}
-						>
-							{cancelReservation.isPending ? "Cancelling…" : "Cancel & refund reservation"}
-						</Button>
+					<span className="text-sm text-neutral-700">
+						{formatDate(conflict.checkIn)} – {formatDate(conflict.checkOut)}
+					</span>
+					{reservation && (
+						<span className="text-sm text-neutral-500">
+							· Reservation #{reservation.id} ({reservation.guestName}) · {reservation.status}
+						</span>
 					)}
 				</div>
+				<p className="text-sm text-neutral-600">{conflict.detail}</p>
+
+				{resolved ? (
+					<div className="flex flex-wrap items-center gap-3 text-sm text-neutral-500">
+						<span>Resolved {conflict.resolvedAt && formatDate(conflict.resolvedAt)}</span>
+						{conflict.resolutionNote && <span>· {conflict.resolutionNote}</span>}
+						<Button
+							className="px-3 py-1.5 text-sm"
+							disabled={reopen.isPending}
+							type="button"
+							variant="secondary"
+							onClick={() => {
+								reopen.mutate(conflict.id);
+							}}
+						>
+							Reopen
+						</Button>
+					</div>
+				) : (
+					<div className="flex flex-wrap items-end gap-2">
+						<textarea
+							className="min-w-48 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-400"
+							placeholder="Resolution note (optional)"
+							rows={1}
+							value={note}
+							onChange={(event) => {
+								setNote(event.target.value);
+							}}
+						/>
+						<Button
+							className="px-3 py-1.5 text-sm"
+							disabled={resolve.isPending}
+							type="button"
+							variant="secondary"
+							onClick={() => {
+								resolve.mutate({ id: conflict.id, note });
+							}}
+						>
+							Mark resolved
+						</Button>
+						{canCancel && reservation && (
+							<Button
+								className="px-3 py-1.5 text-sm"
+								type="button"
+								onClick={() => { setConfirmingCancel(true); }}
+							>
+								Cancel & refund reservation
+							</Button>
+						)}
+					</div>
+				)}
+			</li>
+			{confirmingCancel && reservation && (
+				<ConfirmDialog
+					confirmLabel="Cancel & refund"
+					error={cancelReservation.error?.message}
+					isPending={cancelReservation.isPending}
+					message={cancelConfirmMessage(reservation)}
+					title={`Reservation #${reservation.id}`}
+					onCancel={() => {
+						cancelReservation.reset();
+						setConfirmingCancel(false);
+					}}
+					onConfirm={() => {
+						cancelReservation.mutate(reservation.id, {
+							onSuccess: () => {
+								setConfirmingCancel(false);
+								resolve.mutate({
+									id: conflict.id,
+									note: "Auto-resolved: reservation cancelled and refunded via admin tool.",
+								});
+							},
+						});
+					}}
+				/>
 			)}
-			{cancelReservation.isError && (
-				<p className="text-sm text-red-600">{cancelReservation.error.message}</p>
-			)}
-		</li>
+		</>
 	);
 };
 

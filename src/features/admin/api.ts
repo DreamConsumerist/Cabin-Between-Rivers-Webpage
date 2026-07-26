@@ -44,7 +44,6 @@ export const updateAdminSettings = (
 export type IcalUrls = {
 	airbnbIcalUrl: string;
 	vrboIcalUrl: string;
-	notificationEmails: string;
 };
 
 export type IcalSettings = IcalUrls & {
@@ -91,6 +90,20 @@ export const regenerateExportToken = (): Promise<{
 export const fetchAdminTerms = (): Promise<{ termsContent: string }> =>
 	jsonFetch("/api/admin-terms");
 
+export type NotificationSettings = { notificationEmails: string };
+
+export const fetchAdminNotifications = (): Promise<NotificationSettings> =>
+	jsonFetch("/api/admin-notifications");
+
+export const updateAdminNotifications = (
+	input: NotificationSettings
+): Promise<NotificationSettings> =>
+	jsonFetch("/api/admin-notifications", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
 export type AdminBooking = {
 	id: number;
 	checkIn: string;
@@ -106,9 +119,44 @@ export type AdminBooking = {
 	hasIdPhoto: boolean;
 };
 
+export type AdminExternalBlock = {
+	id: number;
+	source: "airbnb" | "vrbo";
+	checkIn: string;
+	checkOut: string;
+};
+
+export type ManualBlock = {
+	id: number;
+	checkIn: string;
+	checkOut: string;
+	note: string | null;
+	createdAt: string;
+};
+
+export type ManualBlockInput = {
+	checkIn: string;
+	checkOut: string;
+	note: string;
+};
+
 export const fetchAdminBookings = (): Promise<{
 	reservations: Array<AdminBooking>;
+	externalBlocks: Array<AdminExternalBlock>;
+	manualBlocks: Array<ManualBlock>;
 }> => jsonFetch("/api/admin-bookings");
+
+export const createManualBlock = (
+	input: ManualBlockInput
+): Promise<{ block: ManualBlock }> =>
+	jsonFetch("/api/admin-manual-blocks", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
+export const deleteManualBlock = (id: number): Promise<{ deleted: boolean }> =>
+	jsonFetch(`/api/admin-manual-blocks?id=${id}`, { method: "DELETE" });
 
 export const updateAdminTerms = (
 	termsContent: string

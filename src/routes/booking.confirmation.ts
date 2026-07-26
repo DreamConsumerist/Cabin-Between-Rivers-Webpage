@@ -7,7 +7,7 @@ const searchSchema = z.object({
 	sessionId: z.string().optional(),
 });
 
-export const Route = createFileRoute("/booking/confirmation")({
+export const Route = createFileRoute("/booking_/confirmation")({
 	component: BookingConfirmation,
 	validateSearch: searchSchema,
 });

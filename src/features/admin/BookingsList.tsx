@@ -1,7 +1,10 @@
 import { useState } from "react";
 import dayjs from "dayjs";
 import type { FunctionComponent } from "../../common/types";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownMenu } from "../../components/ui/DropdownMenu";
+import { InfoTooltip } from "../../components/ui/InfoTooltip";
+import { cancelConfirmMessage } from "./cancelConfirmMessage";
 import { formatCents } from "../booking/dateUtilities";
 import type { AdminBooking } from "./api";
 import { BookingsCalendar } from "./BookingsCalendar";
@@ -46,27 +49,47 @@ const toTelHref = (phone: string): string => {
 // Tucked into the overflow menu rather than an always-visible button —
 // cancelling is a rare, exceptional action here (compare the Conflicts tab,
 // where it's the primary/expected action and shown as a plain button).
+//
+// The confirm dialog renders as a sibling of DropdownMenu, not inside its
+// children — DropdownMenu closes (and unmounts its children) as soon as any
+// child button is clicked, which would otherwise unmount the dialog the
+// instant it opened.
 const BookingActionsMenu = ({ reservation }: { reservation: AdminBooking }): FunctionComponent => {
 	const cancelReservation = useAdminCancelReservation();
+	const [confirming, setConfirming] = useState(false);
 	const isRefund = reservation.status === "confirmed";
+	const confirmLabel = isRefund ? "Cancel & refund" : "Cancel reservation";
 
 	return (
-		<DropdownMenu label="Booking actions">
-			<button
-				className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:text-neutral-400"
-				disabled={cancelReservation.isPending}
-				type="button"
-				onClick={() => {
-					const message = isRefund
-						? `Cancel reservation #${reservation.id} (${reservation.guestName}) and refund ${formatCents(reservation.amountTotal)}? This cannot be undone.`
-						: `Cancel reservation #${reservation.id} (${reservation.guestName})? Nothing has been charged yet. This cannot be undone.`;
-					if (!confirm(message)) return;
-					cancelReservation.mutate(reservation.id);
-				}}
-			>
-				{isRefund ? "Cancel & refund" : "Cancel reservation"}
-			</button>
-		</DropdownMenu>
+		<>
+			<DropdownMenu label="Booking actions">
+				<button
+					className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50"
+					type="button"
+					onClick={() => { setConfirming(true); }}
+				>
+					{confirmLabel}
+				</button>
+			</DropdownMenu>
+			{confirming && (
+				<ConfirmDialog
+					confirmLabel={confirmLabel}
+					error={cancelReservation.error?.message}
+					isPending={cancelReservation.isPending}
+					message={cancelConfirmMessage(reservation)}
+					title={`Reservation #${reservation.id}`}
+					onCancel={() => {
+						cancelReservation.reset();
+						setConfirming(false);
+					}}
+					onConfirm={() => {
+						cancelReservation.mutate(reservation.id, {
+							onSuccess: () => { setConfirming(false); },
+						});
+					}}
+				/>
+			)}
+		</>
 	);
 };
 
@@ -78,6 +101,8 @@ const HIGHLIGHT_MS = 2000;
 export const BookingsList = (): FunctionComponent => {
 	const { data, isPending, error } = useAdminBookings();
 	const reservations = data?.reservations ?? [];
+	const externalBlocks = data?.externalBlocks ?? [];
+	const manualBlocks = data?.manualBlocks ?? [];
 	const [highlightedId, setHighlightedId] = useState<number | null>(null);
 
 	const handleSelectFromCalendar = (reservationId: number): void => {
@@ -96,12 +121,20 @@ export const BookingsList = (): FunctionComponent => {
 	return (
 		<div className="flex flex-col gap-6">
 			<div>
-				<h2 className="mb-2 text-sm font-semibold text-neutral-700">Calendar</h2>
-				{reservations.length === 0 ? (
-					<p className="text-neutral-500">No bookings yet.</p>
-				) : (
-					<BookingsCalendar reservations={reservations} onSelect={handleSelectFromCalendar} />
-				)}
+				<div className="mb-2 flex items-center gap-1.5">
+					<h2 className="text-sm font-semibold text-neutral-700">Calendar</h2>
+					<InfoTooltip label="About the calendar">
+						Click an open date to block it for that day. Click a different date to extend it into a
+						range. Clicking again starts a new selection — e.g. the cabin is closed, or family/friends
+						are staying.
+					</InfoTooltip>
+				</div>
+				<BookingsCalendar
+					externalBlocks={externalBlocks}
+					manualBlocks={manualBlocks}
+					reservations={reservations}
+					onSelect={handleSelectFromCalendar}
+				/>
 			</div>
 
 			{reservations.length > 0 && (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import type { FunctionComponent } from "../../common/types";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { TextField } from "../../components/forms/TextField";
 import {
 	useDeleteGalleryPhoto,
@@ -78,55 +79,73 @@ const PhotoRow = ({ photo, isFirst, isLast, onMoveUp, onMoveDown }: PhotoRowProp
 	const updateCaption = useUpdateGalleryPhotoCaption();
 	const deletePhoto = useDeleteGalleryPhoto();
 	const [alt, setAlt] = useState(photo.alt ?? "");
+	const [confirmingDelete, setConfirmingDelete] = useState(false);
 
 	return (
-		<li className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3">
-			<img alt={photo.alt ?? "Gallery photo"} className="h-16 w-16 shrink-0 rounded-lg object-cover" src={photo.src} />
-			<input
-				className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
-				placeholder="Caption (optional)"
-				value={alt}
-				onChange={(event) => { setAlt(event.target.value); }}
-			/>
-			<div className="flex shrink-0 items-center gap-1">
-				<button
-					className="rounded-lg px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30"
-					disabled={isFirst}
-					type="button"
-					onClick={onMoveUp}
-				>
-					↑
-				</button>
-				<button
-					className="rounded-lg px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30"
-					disabled={isLast}
-					type="button"
-					onClick={onMoveDown}
-				>
-					↓
-				</button>
-				<Button
-					className="px-3 py-1.5 text-sm"
-					disabled={alt.trim() === (photo.alt ?? "") || updateCaption.isPending}
-					type="button"
-					variant="secondary"
-					onClick={() => { updateCaption.mutate({ id: photo.id, alt: alt.trim() }); }}
-				>
-					Save
-				</Button>
-				<Button
-					className="px-3 py-1.5 text-sm"
-					disabled={deletePhoto.isPending}
-					type="button"
-					variant="secondary"
-					onClick={() => {
-						if (confirm("Remove this photo from the gallery?")) deletePhoto.mutate(photo.id);
+		<>
+			<li className="flex items-center gap-3 rounded-xl border border-neutral-200 p-3">
+				<img alt={photo.alt ?? "Gallery photo"} className="h-16 w-16 shrink-0 rounded-lg object-cover" src={photo.src} />
+				<input
+					className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
+					placeholder="Caption (optional)"
+					value={alt}
+					onChange={(event) => { setAlt(event.target.value); }}
+				/>
+				<div className="flex shrink-0 items-center gap-1">
+					<button
+						className="rounded-lg px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30"
+						disabled={isFirst}
+						type="button"
+						onClick={onMoveUp}
+					>
+						↑
+					</button>
+					<button
+						className="rounded-lg px-2 py-1 text-sm text-neutral-500 hover:bg-neutral-100 disabled:opacity-30"
+						disabled={isLast}
+						type="button"
+						onClick={onMoveDown}
+					>
+						↓
+					</button>
+					<Button
+						className="px-3 py-1.5 text-sm"
+						disabled={alt.trim() === (photo.alt ?? "") || updateCaption.isPending}
+						type="button"
+						variant="secondary"
+						onClick={() => { updateCaption.mutate({ id: photo.id, alt: alt.trim() }); }}
+					>
+						Save
+					</Button>
+					<Button
+						className="px-3 py-1.5 text-sm"
+						type="button"
+						variant="secondary"
+						onClick={() => { setConfirmingDelete(true); }}
+					>
+						Delete
+					</Button>
+				</div>
+			</li>
+			{confirmingDelete && (
+				<ConfirmDialog
+					confirmLabel="Remove"
+					error={deletePhoto.error?.message}
+					isPending={deletePhoto.isPending}
+					message="Remove this photo from the gallery?"
+					title="Remove photo"
+					onCancel={() => {
+						deletePhoto.reset();
+						setConfirmingDelete(false);
 					}}
-				>
-					Delete
-				</Button>
-			</div>
-		</li>
+					onConfirm={() => {
+						deletePhoto.mutate(photo.id, {
+							onSuccess: () => { setConfirmingDelete(false); },
+						});
+					}}
+				/>
+			)}
+		</>
 	);
 };
 

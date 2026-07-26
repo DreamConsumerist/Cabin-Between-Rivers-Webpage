@@ -1,13 +1,27 @@
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import type { FunctionComponent } from "../common/types";
 import { useReservationStatus } from "../features/booking/hooks";
 
-const route = getRouteApi("/booking/confirmation");
+const route = getRouteApi("/booking_/confirmation");
+
+// Long enough for the guest to actually read the confirmation before being
+// sent home, short enough that it doesn't feel like the page is stuck.
+const REDIRECT_HOME_DELAY_MS = 5000;
 
 export const BookingConfirmation = (): FunctionComponent => {
 	const { reservationId } = route.useSearch();
 	const statusQuery = useReservationStatus(reservationId ?? null);
 	const status = statusQuery.data?.status;
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		if (status !== "confirmed") return;
+		const timeout = setTimeout(() => {
+			void navigate({ to: "/" });
+		}, REDIRECT_HOME_DELAY_MS);
+		return () => { clearTimeout(timeout); };
+	}, [status, navigate]);
 
 	return (
 		<main className="flex min-h-[60vh] w-full items-center justify-center">
@@ -31,8 +45,10 @@ export const BookingConfirmation = (): FunctionComponent => {
 							You're booked!
 						</h1>
 						<p className="text-neutral-600">
-							Reservation #{reservationId} is confirmed. We look forward to
-							hosting you.
+							A confirmation email will be sent to you shortly.
+						</p>
+						<p className="text-sm text-neutral-400">
+							Taking you back to the home page…
 						</p>
 					</>
 				)}

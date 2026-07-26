@@ -49,6 +49,7 @@
         "npm:globals@^17.6.0",
         "npm:image-size@^2.0.2",
         "npm:jsdom@^29.1.1",
+        "npm:node-ical@~0.27.1",
         "npm:prettier@^3.8.4",
         "npm:react-dom@^19.2.7",
         "npm:react-hook-form@^7.80.0",

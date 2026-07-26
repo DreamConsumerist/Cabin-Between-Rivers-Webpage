@@ -60,7 +60,6 @@ export const IcalForm = (): FunctionComponent => {
 			reset({
 				airbnbIcalUrl: data.airbnbIcalUrl,
 				vrboIcalUrl: data.vrboIcalUrl,
-				notificationEmails: data.notificationEmails,
 			});
 		}
 	}, [data, reset]);
@@ -80,7 +79,6 @@ export const IcalForm = (): FunctionComponent => {
 					update.mutate({
 						airbnbIcalUrl: values.airbnbIcalUrl ?? "",
 						vrboIcalUrl: values.vrboIcalUrl ?? "",
-						notificationEmails: values.notificationEmails ?? "",
 					});
 				})}
 			>
@@ -102,15 +100,6 @@ export const IcalForm = (): FunctionComponent => {
 					{...register("vrboIcalUrl")}
 					error={errors.vrboIcalUrl?.message}
 				/>
-				<TextField
-					label="Double-booking warning email(s) (optional)"
-					{...register("notificationEmails")}
-					error={errors.notificationEmails?.message}
-				/>
-				<p className="-mt-3 text-sm text-neutral-500">
-					Comma-separated. Warns if a synced calendar block or a payment race
-					overlaps a booking that&apos;s already confirmed or held.
-				</p>
 				{update.isError && (
 					<p className="text-sm text-red-600">{update.error.message}</p>
 				)}

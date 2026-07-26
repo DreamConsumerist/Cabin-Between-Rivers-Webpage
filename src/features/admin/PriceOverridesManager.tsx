@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { FunctionComponent } from "../../common/types";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { TextField } from "../../components/forms/TextField";
 import type { DateSelection } from "../booking/Calendar";
 import { toIsoDate } from "../booking/dateUtilities";
@@ -83,64 +84,82 @@ const OverrideRow = ({ override }: OverrideRowProps): FunctionComponent => {
 	const deleteOverride = useDeletePriceOverride();
 	const [rate, setRate] = useState(String(centsToDollars(override.nightlyRate)));
 	const [label, setLabel] = useState(override.label ?? "");
+	const [confirmingDelete, setConfirmingDelete] = useState(false);
 
 	const dirty = rate !== String(centsToDollars(override.nightlyRate)) || label !== (override.label ?? "");
 
 	return (
-		<li className="flex flex-col gap-2 rounded-xl border border-neutral-200 p-3">
-			<div className="flex flex-wrap items-center gap-3">
-				<span className="text-sm text-neutral-700">
-					{dayjs(override.checkIn).format("MMM D, YYYY")} – {dayjs(override.checkOut).format("MMM D, YYYY")}
-				</span>
-				<input
-					className="w-24 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
-					min={0}
-					step="0.01"
-					type="number"
-					value={rate}
-					onChange={(event) => { setRate(event.target.value); }}
-				/>
-				<input
-					className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
-					placeholder="Label (optional)"
-					value={label}
-					onChange={(event) => { setLabel(event.target.value); }}
-				/>
-				<div className="flex shrink-0 items-center gap-2">
-					<Button
-						className="px-3 py-1.5 text-sm"
-						disabled={!dirty || update.isPending || Number.isNaN(Number(rate))}
-						type="button"
-						variant="secondary"
-						onClick={() => {
-							update.mutate({
-								id: override.id,
-								input: {
-									checkIn: override.checkIn,
-									checkOut: override.checkOut,
-									nightlyRate: dollarsToCents(Number(rate)),
-									label,
-								},
-							});
-						}}
-					>
-						Save
-					</Button>
-					<Button
-						className="px-3 py-1.5 text-sm"
-						disabled={deleteOverride.isPending}
-						type="button"
-						variant="secondary"
-						onClick={() => {
-							if (confirm("Delete this price override?")) deleteOverride.mutate(override.id);
-						}}
-					>
-						Delete
-					</Button>
+		<>
+			<li className="flex flex-col gap-2 rounded-xl border border-neutral-200 p-3">
+				<div className="flex flex-wrap items-center gap-3">
+					<span className="text-sm text-neutral-700">
+						{dayjs(override.checkIn).format("MMM D, YYYY")} – {dayjs(override.checkOut).format("MMM D, YYYY")}
+					</span>
+					<input
+						className="w-24 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
+						min={0}
+						step="0.01"
+						type="number"
+						value={rate}
+						onChange={(event) => { setRate(event.target.value); }}
+					/>
+					<input
+						className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
+						placeholder="Label (optional)"
+						value={label}
+						onChange={(event) => { setLabel(event.target.value); }}
+					/>
+					<div className="flex shrink-0 items-center gap-2">
+						<Button
+							className="px-3 py-1.5 text-sm"
+							disabled={!dirty || update.isPending || Number.isNaN(Number(rate))}
+							type="button"
+							variant="secondary"
+							onClick={() => {
+								update.mutate({
+									id: override.id,
+									input: {
+										checkIn: override.checkIn,
+										checkOut: override.checkOut,
+										nightlyRate: dollarsToCents(Number(rate)),
+										label,
+									},
+								});
+							}}
+						>
+							Save
+						</Button>
+						<Button
+							className="px-3 py-1.5 text-sm"
+							type="button"
+							variant="secondary"
+							onClick={() => { setConfirmingDelete(true); }}
+						>
+							Delete
+						</Button>
+					</div>
 				</div>
-			</div>
-			{update.isError && <p className="text-sm text-red-600">{update.error.message}</p>}
-		</li>
+				{update.isError && <p className="text-sm text-red-600">{update.error.message}</p>}
+			</li>
+			{confirmingDelete && (
+				<ConfirmDialog
+					confirmLabel="Delete"
+					error={deleteOverride.error?.message}
+					isPending={deleteOverride.isPending}
+					message="Delete this price override?"
+					title="Delete price override"
+					onCancel={() => {
+						deleteOverride.reset();
+						setConfirmingDelete(false);
+					}}
+					onConfirm={() => {
+						deleteOverride.mutate(override.id, {
+							onSuccess: () => { setConfirmingDelete(false); },
+						});
+					}}
+				/>
+			)}
+		</>
 	);
 };
 

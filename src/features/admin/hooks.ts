@@ -9,11 +9,14 @@ import {
 	adminCancelReservation,
 	adminLogin,
 	adminLogout,
+	createManualBlock,
 	createPriceOverride,
+	deleteManualBlock,
 	deletePriceOverride,
 	fetchAdminBookings,
 	fetchAdminIcal,
 	fetchAdminMe,
+	fetchAdminNotifications,
 	fetchAdminSettings,
 	fetchAdminTerms,
 	fetchConflicts,
@@ -23,15 +26,20 @@ import {
 	resolveConflict,
 	triggerAdminIcalSync,
 	updateAdminIcal,
+	updateAdminNotifications,
 	updateAdminSettings,
 	updateAdminTerms,
 	updatePriceOverride,
 	type AdminBooking,
+	type AdminExternalBlock,
 	type AdminSettings,
 	type Conflict,
 	type IcalSettings,
 	type IcalSyncSummary,
 	type IcalUrls,
+	type ManualBlock,
+	type ManualBlockInput,
+	type NotificationSettings,
 	type PriceOverride,
 	type PriceOverrideInput,
 	type SettingsInput,
@@ -128,8 +136,34 @@ export const useAdminTerms = (): UseQueryResult<
 	Error
 > => useQuery({ queryKey: ["admin-terms"], queryFn: fetchAdminTerms });
 
+export const useAdminNotifications = (): UseQueryResult<
+	NotificationSettings,
+	Error
+> =>
+	useQuery({
+		queryKey: ["admin-notifications"],
+		queryFn: fetchAdminNotifications,
+	});
+
+export const useUpdateAdminNotifications = (): UseMutationResult<
+	NotificationSettings,
+	Error,
+	NotificationSettings
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: NotificationSettings) => updateAdminNotifications(input),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: ["admin-notifications"] }),
+	});
+};
+
 export const useAdminBookings = (): UseQueryResult<
-	{ reservations: Array<AdminBooking> },
+	{
+		reservations: Array<AdminBooking>;
+		externalBlocks: Array<AdminExternalBlock>;
+		manualBlocks: Array<ManualBlock>;
+	},
 	Error
 > => useQuery({ queryKey: ["admin-bookings"], queryFn: fetchAdminBookings });
 
@@ -234,6 +268,33 @@ export const useReopenConflict = (): UseMutationResult<
 		mutationFn: (id: number) => reopenConflict(id),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: CONFLICTS_QUERY_KEY }),
+	});
+};
+
+// Manual blocks render on the Bookings tab's calendar via useAdminBookings —
+// there's no separate manual-blocks view, so invalidating that one query key
+// is enough to refresh every surface after a create/delete.
+export const useCreateManualBlock = (): UseMutationResult<
+	{ block: ManualBlock },
+	Error,
+	ManualBlockInput
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: ManualBlockInput) => createManualBlock(input),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-bookings"] }),
+	});
+};
+
+export const useDeleteManualBlock = (): UseMutationResult<
+	{ deleted: boolean },
+	Error,
+	number
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (id: number) => deleteManualBlock(id),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-bookings"] }),
 	});
 };
 

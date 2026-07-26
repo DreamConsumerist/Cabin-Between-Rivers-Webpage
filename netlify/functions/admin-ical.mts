@@ -12,16 +12,12 @@ import { syncCalendars, type IcalSyncSummary } from "../../lib/icalSync";
 const updateSchema = z.object({
 	airbnbIcalUrl: z.string().trim().url().or(z.literal("")),
 	vrboIcalUrl: z.string().trim().url().or(z.literal("")),
-	// Permissive here (not per-address .email() validation) — the client form
-	// already validates each comma-separated address, and a malformed one
-	// simply won't reach Resend as a valid recipient at send time (logged,
-	// not surfaced as a save-time error). See lib/mailer.ts.
-	notificationEmails: z.string().trim().or(z.literal("")),
 });
 
-// GET/PUT /api/admin-ical — the Airbnb/Vrbo iCal sync URLs and the
-// double-booking notification recipients behind the settings table (see
-// db/schema.ts). Both methods require an admin session.
+// GET/PUT /api/admin-ical — the Airbnb/Vrbo iCal sync URLs behind the settings
+// table (see db/schema.ts). Notification recipients live on their own
+// Notifications tab — see admin-notifications.mts. Both methods require an
+// admin session.
 export default async (req: Request, _context: Context): Promise<Response> => {
 	const unauthorized = requireAdmin(req);
 	if (unauthorized) return unauthorized;
@@ -32,9 +28,8 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		return json({
 			airbnbIcalUrl: settings?.airbnbIcalUrl ?? "",
 			vrboIcalUrl: settings?.vrboIcalUrl ?? "",
-			notificationEmails: settings?.notificationEmails ?? "",
 			exportToken,
-			exportUrl: `${new URL(req.url).origin}/api/calendar-export?token=${exportToken}`,
+			exportUrl: `${new URL(req.url).origin}/api/calendar-export.ics?token=${exportToken}`,
 		});
 	}
 
@@ -52,7 +47,6 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		const settings = await updateIcalUrls({
 			airbnbIcalUrl: parsed.data.airbnbIcalUrl || null,
 			vrboIcalUrl: parsed.data.vrboIcalUrl || null,
-			notificationEmails: parsed.data.notificationEmails || null,
 		});
 
 		// Sync inline after saving, before responding, so the admin sees fresh
@@ -69,7 +63,6 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		return json({
 			airbnbIcalUrl: settings.airbnbIcalUrl ?? "",
 			vrboIcalUrl: settings.vrboIcalUrl ?? "",
-			notificationEmails: settings.notificationEmails ?? "",
 			sync,
 		});
 	}

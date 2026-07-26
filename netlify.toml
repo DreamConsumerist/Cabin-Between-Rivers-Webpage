@@ -16,6 +16,17 @@
   targetPort = 5173
   port = 8888
 
+# Airbnb/Vrbo's "paste a link ending in .ics" import UI wants the URL itself to
+# end in .ics (some hosts sniff the extension, not just content-type), so this
+# gives the token-gated feed an .ics-suffixed alias. Must precede the generic
+# /api/* rule below, since that one would otherwise route it to a nonexistent
+# "calendar-export.ics" function.
+[[redirects]]
+  from = "/api/calendar-export.ics"
+  to = "/.netlify/functions/calendar-export"
+  status = 200
+  force = true
+
 # Friendly API paths: /api/health -> /.netlify/functions/health
 [[redirects]]
   from = "/api/*"

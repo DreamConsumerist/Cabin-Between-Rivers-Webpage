@@ -1,7 +1,11 @@
-export type ExportableReservation = {
+export type ExportableBlock = {
 	id: number;
 	checkIn: string;
 	checkOut: string;
+	// "reservation" ids and "manual" block ids come from separate DB sequences
+	// and can collide (both starting at 1), so this also disambiguates the UID
+	// prefix — see toVEvent.
+	source: "reservation" | "manual";
 };
 
 // Arbitrary but fixed namespace for UIDs — RFC 5545 §3.8.4.7 only requires
@@ -40,29 +44,40 @@ const toIcsTimestamp = (date: Date): string =>
 		.replace(/[-:]/g, "")
 		.replace(/\.\d{3}Z$/, "Z");
 
-// reservation -> VEVENT lines. DTEND = checkOut as-is: this codebase's
+// UID prefix kept identical to the pre-manual-block export ("reservation-N")
+// so existing reservation UIDs don't change and Airbnb/Vrbo don't treat them
+// as new events. Manual blocks get their own "manual-block-N" namespace.
+const UID_PREFIX: Record<ExportableBlock["source"], string> = {
+	reservation: "reservation",
+	manual: "manual-block",
+};
+
+// Fixed, generic SUMMARY text per source — never guest PII (ExportableBlock
+// itself carries no name/email/phone) and never the admin's manual-block note
+// either, so there's no PII/free-text path into this feed.
+const SUMMARY: Record<ExportableBlock["source"], string> = {
+	reservation: "Cabin Between Rivers — Booked",
+	manual: "Cabin Between Rivers — Blocked",
+};
+
+// block -> VEVENT lines. DTEND = checkOut as-is: this codebase's
 // [checkIn, checkOut) convention is already exclusive-end, so unlike the
 // import side's addOneDay (lib/icalSync.ts), no adjustment is needed going
 // this direction — export always has an explicit checkOut.
-const toVEvent = (
-	reservation: ExportableReservation,
-	dtstamp: string
-): string[] => [
+const toVEvent = (block: ExportableBlock, dtstamp: string): string[] => [
 	"BEGIN:VEVENT",
-	`UID:reservation-${reservation.id}@${UID_DOMAIN}`,
+	`UID:${UID_PREFIX[block.source]}-${block.id}@${UID_DOMAIN}`,
 	`DTSTAMP:${dtstamp}`,
-	`DTSTART;VALUE=DATE:${toIcsDate(reservation.checkIn)}`,
-	`DTEND;VALUE=DATE:${toIcsDate(reservation.checkOut)}`,
-	// Fixed, generic text — never guest PII. ExportableReservation itself
-	// carries no name/email/phone, so there's no PII path into this feed even
-	// if SUMMARY becomes dynamic later.
-	`SUMMARY:${escapeText("Cabin Between Rivers — Booked")}`,
+	`DTSTART;VALUE=DATE:${toIcsDate(block.checkIn)}`,
+	`DTEND;VALUE=DATE:${toIcsDate(block.checkOut)}`,
+	`SUMMARY:${escapeText(SUMMARY[block.source])}`,
 	"END:VEVENT",
 ];
 
-// Pure: reservation rows -> full ICS text. `now` is injectable for tests.
-export const buildReservationsIcs = (
-	reservations: ExportableReservation[],
+// Pure: reservation + manual-block rows -> full ICS text. `now` is injectable
+// for tests.
+export const buildBlocksIcs = (
+	blocks: ExportableBlock[],
 	now: Date = new Date()
 ): string => {
 	const dtstamp = toIcsTimestamp(now);
@@ -72,7 +87,7 @@ export const buildReservationsIcs = (
 		"PRODID:-//Cabin Between Rivers//Booking Export//EN",
 		"CALSCALE:GREGORIAN",
 		"METHOD:PUBLISH",
-		...reservations.flatMap((reservation) => toVEvent(reservation, dtstamp)),
+		...blocks.flatMap((block) => toVEvent(block, dtstamp)),
 		"END:VCALENDAR",
 	];
 	return lines.map(foldLine).join("\r\n") + "\r\n";

@@ -12,13 +12,15 @@ import {
 	insertPendingReservation,
 	isOverlapError,
 } from "../../lib/availability";
+import { hasManualBlockOverlap } from "../../lib/manualBlocks";
 import { getPriceOverridesForRange } from "../../lib/priceOverrides";
 
 // POST /api/create-booking
 // Validates the request, prices it server-side, and creates a PENDING hold.
 // Same-site overlap is guaranteed impossible by the DB EXCLUDE constraint;
-// Airbnb/Vrbo overlap is checked here. Returns the reservation id + amount,
-// which the (later) Stripe step will charge.
+// Airbnb/Vrbo overlap and admin-created manual blocks are checked here.
+// Returns the reservation id + amount, which the (later) Stripe step will
+// charge.
 export default async (req: Request, _context: Context): Promise<Response> => {
 	const notAllowed = requireMethod(req, "POST");
 	if (notAllowed) return notAllowed;
@@ -45,7 +47,10 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		// EXCLUDE constraint, regardless of whether the cron has run.
 		await expireLapsedHolds();
 
-		if (await hasExternalBlockOverlap(input.checkIn, input.checkOut)) {
+		if (
+			(await hasExternalBlockOverlap(input.checkIn, input.checkOut)) ||
+			(await hasManualBlockOverlap(input.checkIn, input.checkOut))
+		) {
 			return error("Those dates are unavailable", 409);
 		}
 

@@ -1,15 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
-import { externalBlocks, reservations, settings } from "../db/schema";
+import { externalBlocks, manualBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
 import { isExclusionViolation } from "./dbErrors";
-import type { ExportableReservation } from "./icalExport";
+import type { ExportableBlock } from "./icalExport";
 
 export type BlockedRange = {
 	checkIn: string;
 	checkOut: string;
-	source: "reservation" | "airbnb" | "vrbo";
+	source: "reservation" | "airbnb" | "vrbo" | "manual";
 };
 
 // A reservation blocks dates when it is confirmed, or pending with a hold that
@@ -46,10 +46,10 @@ export const expireLapsedHolds = async (): Promise<void> => {
 		);
 };
 
-// All currently-blocked date ranges (active reservations + external blocks),
-// for rendering the availability calendar.
+// All currently-blocked date ranges (active reservations + external blocks +
+// manual blocks), for rendering the availability calendar.
 export const getBlockedRanges = async (): Promise<BlockedRange[]> => {
-	const [res, ext] = await Promise.all([
+	const [res, ext, manual] = await Promise.all([
 		db
 			.select({
 				checkIn: reservations.checkIn,
@@ -64,6 +64,12 @@ export const getBlockedRanges = async (): Promise<BlockedRange[]> => {
 				source: externalBlocks.source,
 			})
 			.from(externalBlocks),
+		db
+			.select({
+				checkIn: manualBlocks.checkIn,
+				checkOut: manualBlocks.checkOut,
+			})
+			.from(manualBlocks),
 	]);
 
 	return [
@@ -73,6 +79,7 @@ export const getBlockedRanges = async (): Promise<BlockedRange[]> => {
 			checkOut: e.checkOut,
 			source: e.source as "airbnb" | "vrbo",
 		})),
+		...manual.map((m) => ({ ...m, source: "manual" as const })),
 	];
 };
 
@@ -91,21 +98,40 @@ export const hasExternalBlockOverlap = async (
 	return rows.length > 0;
 };
 
-// Site-direct reservations that block dates (see activeReservation()) — the
-// data source for the public iCal export feed (lib/icalExport.ts). Deliberately
-// selects only id/checkIn/checkOut, never guest name/email/phone.
-export const getExportableReservations = async (): Promise<
-	ExportableReservation[]
-> =>
-	db
-		.select({
-			id: reservations.id,
-			checkIn: reservations.checkIn,
-			checkOut: reservations.checkOut,
-		})
-		.from(reservations)
-		.where(activeReservation())
-		.orderBy(reservations.checkIn);
+// Site-direct reservations (see activeReservation()) plus admin manual
+// blocks — the data source for the public iCal export feed
+// (lib/icalExport.ts). Manual blocks are included so Airbnb/Vrbo actually see
+// dates an admin has closed off on this site (e.g. "family staying") instead
+// of only finding out via a conflict after the fact — see
+// netlify/functions/calendar-export.mts for why externalBlocks are excluded.
+// Deliberately selects only id/checkIn/checkOut, never guest name/email/phone
+// or the manual block's free-text note.
+export const getExportableBlocks = async (): Promise<ExportableBlock[]> => {
+	const [res, manual] = await Promise.all([
+		db
+			.select({
+				id: reservations.id,
+				checkIn: reservations.checkIn,
+				checkOut: reservations.checkOut,
+			})
+			.from(reservations)
+			.where(activeReservation())
+			.orderBy(reservations.checkIn),
+		db
+			.select({
+				id: manualBlocks.id,
+				checkIn: manualBlocks.checkIn,
+				checkOut: manualBlocks.checkOut,
+			})
+			.from(manualBlocks)
+			.orderBy(manualBlocks.checkIn),
+	]);
+
+	return [
+		...res.map((r) => ({ ...r, source: "reservation" as const })),
+		...manual.map((m) => ({ ...m, source: "manual" as const })),
+	];
+};
 
 export type ActiveReservationOverlap = {
 	id: number;
@@ -166,12 +192,11 @@ export const updatePricingSettings = async (update: PricingUpdate) => {
 export type IcalUpdate = {
 	airbnbIcalUrl: string | null;
 	vrboIcalUrl: string | null;
-	notificationEmails: string | null;
 };
 
 // Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
-// the Airbnb/Vrbo iCal URLs and the double-booking notification recipients
-// (see lib/mailer.ts) — they're saved together from the same admin iCal tab.
+// the Airbnb/Vrbo iCal URLs — see updateNotificationEmails/updateTermsContent
+// for the same shape scoped to their own tab's field(s).
 export const updateIcalUrls = async (update: IcalUpdate) => {
 	const existing = await getSettings();
 	if (existing) {
@@ -183,6 +208,23 @@ export const updateIcalUrls = async (update: IcalUpdate) => {
 		return rows[0]!;
 	}
 	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+// Same single-row-upsert shape as `updatePricingSettings`, but scoped to just
+// `notificationEmails` — kept separate so the Notifications admin tab doesn't
+// need to resend the iCal URLs (and vice versa) just to save its own field.
+export const updateNotificationEmails = async (notificationEmails: string | null) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set({ notificationEmails })
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values({ notificationEmails }).returning();
 	return rows[0]!;
 };
 
@@ -316,6 +358,28 @@ export const setReservationIdPhoto = async (
 // All reservations, newest check-in first — backs the admin Bookings tab.
 export const listReservations = async () => {
 	return db.select().from(reservations).orderBy(desc(reservations.checkIn));
+};
+
+export type ExternalBlockRow = {
+	id: number;
+	source: "airbnb" | "vrbo";
+	checkIn: string;
+	checkOut: string;
+};
+
+// Synced Airbnb/Vrbo blocks, newest check-in first — backs the admin Bookings
+// tab's calendar (rendered alongside site reservations, tinted per source).
+export const listExternalBlocks = async (): Promise<ExternalBlockRow[]> => {
+	const rows = await db
+		.select({
+			id: externalBlocks.id,
+			source: externalBlocks.source,
+			checkIn: externalBlocks.checkIn,
+			checkOut: externalBlocks.checkOut,
+		})
+		.from(externalBlocks)
+		.orderBy(desc(externalBlocks.checkIn));
+	return rows.map((r) => ({ ...r, source: r.source as "airbnb" | "vrbo" }));
 };
 
 export const insertPendingReservation = async (r: NewReservation) => {

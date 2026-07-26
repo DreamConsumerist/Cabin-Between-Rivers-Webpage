@@ -18,6 +18,6 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 	const exportToken = await regenerateExportToken();
 	return json({
 		exportToken,
-		exportUrl: `${new URL(req.url).origin}/api/calendar-export?token=${exportToken}`,
+		exportUrl: `${new URL(req.url).origin}/api/calendar-export.ics?token=${exportToken}`,
 	});
 };

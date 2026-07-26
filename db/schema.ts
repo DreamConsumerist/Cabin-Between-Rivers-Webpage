@@ -69,6 +69,22 @@ export const externalBlocks = pgTable(
 	]
 );
 
+// Admin-created blocks with no guest or external-platform booking behind
+// them — e.g. the cabin is closed for maintenance, or family/friends are
+// staying. Blocks guest availability the same way a reservation or synced
+// external_blocks row does (see getBlockedRanges/hasManualBlockOverlap in
+// lib/availability.ts), but is created/removed directly by an admin rather
+// than by a guest checkout or the iCal sync cron.
+export const manualBlocks = pgTable("manual_blocks", {
+	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	checkIn: date("check_in").notNull(),
+	checkOut: date("check_out").notNull(),
+	note: varchar({ length: 500 }),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+});
+
 // Persisted record of a detected double-booking conflict (an external iCal
 // block overlapping a live reservation, or a Stripe payment confirming after
 // the dates were rebooked — see lib/icalSync.ts and
@@ -109,13 +125,13 @@ export const settings = pgTable("settings", {
 	minNights: integer("min_nights").notNull().default(1),
 	airbnbIcalUrl: text("airbnb_ical_url"),
 	vrboIcalUrl: text("vrbo_ical_url"),
-	// Comma-separated recipient list for the double-booking warning email (see
-	// lib/mailer.ts), parsed into a string[] at the application layer — same
-	// single-text-field convention as termsContent below, not a Postgres
-	// array/jsonb column. Admin-configurable here (not an env var) for the
-	// same reason as the two URLs above, and saved from the same iCal admin
-	// tab since it's triggered by that sync as well as by a Stripe webhook
-	// payment-race conflict (see netlify/functions/stripe-webhook.mts).
+	// Comma-separated recipient list (see lib/mailer.ts), parsed into a
+	// string[] at the application layer — same single-text-field convention as
+	// termsContent below, not a Postgres array/jsonb column. Admin-configurable
+	// here (not an env var) via its own Notifications tab
+	// (netlify/functions/admin-notifications.mts). Used for two email types:
+	// a booking-confirmed notice (Stripe webhook) and a double-booking warning
+	// (iCal sync or a Stripe payment race).
 	notificationEmails: text("notification_emails"),
 	// Plain text, admin-edited (see netlify/functions/admin-terms.mts). Null
 	// until an admin saves their own copy — lib/terms.ts's DEFAULT_TERMS_CONTENT

@@ -6,6 +6,7 @@ import { processedWebhookEvents, reservations } from "../../db/schema";
 import { getReservationById, isOverlapError } from "../../lib/availability";
 import { flagDoubleBooking } from "../../lib/conflicts";
 import { error, json } from "../../lib/http";
+import { notifyBookingConfirmed, sendBookingConfirmationEmail } from "../../lib/mailer";
 import { getStripe, getWebhookSecret } from "../../lib/stripe";
 
 // POST /.netlify/functions/stripe-webhook (not proxied through /api/* — keep the
@@ -66,12 +67,30 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 				// payment was in flight) still gets confirmed instead of silently
 				// no-op'ing. The dates themselves are protected by the DB's overlap
 				// EXCLUDE constraint, not by this WHERE clause.
-				await db
+				const confirmed = await db
 					.update(reservations)
 					.set({ status: "confirmed", stripePaymentIntentId: paymentIntentId })
 					.where(
 						and(eq(reservations.id, reservationId), ne(reservations.status, "confirmed"))
-					);
+					)
+					.returning();
+
+				// Empty on a redelivered event that already confirmed this
+				// reservation (the WHERE clause matched nothing) — skip the email
+				// so a Stripe retry never sends a duplicate notification.
+				const reservation = confirmed[0];
+				if (reservation) {
+					const details = {
+						guestName: reservation.guestName,
+						guestEmail: reservation.guestEmail,
+						checkIn: reservation.checkIn,
+						checkOut: reservation.checkOut,
+						guests: reservation.guests,
+						amountTotal: reservation.amountTotal,
+					};
+					await notifyBookingConfirmed(details);
+					await sendBookingConfirmationEmail(details);
+				}
 			} catch (e) {
 				if (isOverlapError(e)) {
 					// The guest paid, but their dates were rebooked by someone else

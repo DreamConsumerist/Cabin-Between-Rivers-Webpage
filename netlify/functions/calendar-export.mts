@@ -1,11 +1,13 @@
 import type { Context } from "@netlify/functions";
 import { constantTimeEquals } from "../../lib/adminAuth";
-import { getExportableReservations, getSettings } from "../../lib/availability";
-import { buildReservationsIcs } from "../../lib/icalExport";
+import { getExportableBlocks, getSettings } from "../../lib/availability";
+import { buildBlocksIcs } from "../../lib/icalExport";
 
-// GET /api/calendar-export?token=... — public .ics feed of this site's own
-// bookings (reservations table only — NOT externalBlocks, so Airbnb/Vrbo's
-// own bookings never echo back to themselves). Token-gated instead of
+// GET /api/calendar-export.ics?token=... (also reachable as /api/calendar-export
+// without the extension — see netlify.toml) — public .ics feed of this site's own
+// bookings and manual blocks (reservations + manual_blocks tables — NOT
+// externalBlocks, so Airbnb/Vrbo's own bookings never echo back to
+// themselves). Token-gated instead of
 // session-gated: Airbnb/Vrbo poll this with no cookies. Any missing/mismatched
 // token 404s (not 401/403) so a guesser can't distinguish "wrong token" from
 // "nothing here". Must call plain getSettings(), never getOrCreateExportToken
@@ -24,7 +26,7 @@ export default async (req: Request, _context: Context): Promise<Response> => {
 		return new Response("Not found", { status: 404 });
 	}
 
-	const ics = buildReservationsIcs(await getExportableReservations());
+	const ics = buildBlocksIcs(await getExportableBlocks());
 	return new Response(ics, {
 		status: 200,
 		headers: {

@@ -23,8 +23,14 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const icalFormSchema = z.object({
 	airbnbIcalUrl: z.string().trim().url("Enter a valid URL").optional().or(z.literal("")),
 	vrboIcalUrl: z.string().trim().url("Enter a valid URL").optional().or(z.literal("")),
-	// Kept as one comma-separated string (matches settings.notificationEmails
-	// and IcalSettings) — parsed into a list server-side, not here.
+});
+
+export type IcalFormInput = z.input<typeof icalFormSchema>;
+export type IcalFormValues = z.output<typeof icalFormSchema>;
+
+export const notificationsFormSchema = z.object({
+	// Kept as one comma-separated string (matches settings.notificationEmails)
+	// — parsed into a list server-side, not here.
 	notificationEmails: z
 		.string()
 		.trim()
@@ -36,8 +42,8 @@ export const icalFormSchema = z.object({
 		),
 });
 
-export type IcalFormInput = z.input<typeof icalFormSchema>;
-export type IcalFormValues = z.output<typeof icalFormSchema>;
+export type NotificationsFormInput = z.input<typeof notificationsFormSchema>;
+export type NotificationsFormValues = z.output<typeof notificationsFormSchema>;
 
 export const termsFormSchema = z.object({
 	termsContent: z.string().trim().min(1, "Terms content is required"),
