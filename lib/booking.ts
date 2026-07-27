@@ -12,6 +12,11 @@ export const isoDateSchema = z
 // Payload for POST /api/create-booking.
 export const createBookingSchema = z
 	.object({
+		// Which configuration (e.g. "Whole Cabin" vs "Downstairs Only") the
+		// guest is booking. Omitted (or settings.configurationSwitchingEnabled
+		// is false) falls back to the default configuration — see
+		// lib/bookingConfigurations.ts's resolveConfiguration.
+		configurationId: z.number().int().positive().optional(),
 		checkIn: isoDateSchema,
 		checkOut: isoDateSchema,
 		guestName: z.string().trim().min(1).max(255),

@@ -6,11 +6,11 @@ import {
 } from "../../lib/booking";
 import {
 	expireLapsedHolds,
-	getSettings,
 	hasExternalBlockOverlap,
 	insertPendingReservation,
 	isOverlapError,
 } from "../../lib/availability";
+import { resolveConfiguration } from "../../lib/bookingConfigurations";
 import { hasManualBlockOverlap } from "../../lib/manualBlocks";
 import { getPriceOverridesForRange } from "../../lib/priceOverrides";
 
@@ -34,12 +34,12 @@ export default withErrorHandling("create-booking", async (req, _context) => {
 	const input = parsed.data;
 
 	try {
-		const config = await getSettings();
-		if (!config) return error("Booking is not configured yet", 503);
+		const configuration = await resolveConfiguration(input.configurationId);
+		if (!configuration) return error("Unknown configuration", 400);
 
 		const nights = nightsBetween(input.checkIn, input.checkOut);
-		if (nights < config.minNights) {
-			return error(`Minimum stay is ${config.minNights} night(s)`, 422);
+		if (nights < configuration.minNights) {
+			return error(`Minimum stay is ${configuration.minNights} night(s)`, 422);
 		}
 
 		// Free any lapsed holds first so they neither block availability nor the
@@ -53,19 +53,27 @@ export default withErrorHandling("create-booking", async (req, _context) => {
 			return error("Those dates are unavailable", 409);
 		}
 
-		const overrides = await getPriceOverridesForRange(input.checkIn, input.checkOut);
+		const overrides = await getPriceOverridesForRange(
+			configuration.id,
+			input.checkIn,
+			input.checkOut
+		);
 		const amountTotal = computeTotalCentsWithOverrides(
 			input.checkIn,
 			input.checkOut,
-			config.nightlyRate,
-			config.cleaningFee,
+			configuration.nightlyRate,
+			configuration.cleaningFee,
 			overrides,
 			input.guests,
-			config.baseOccupancy,
-			config.extraGuestFee
+			configuration.baseOccupancy,
+			configuration.extraGuestFee
 		);
 
-		const reservation = await insertPendingReservation({ ...input, amountTotal });
+		const reservation = await insertPendingReservation({
+			...input,
+			configurationId: configuration.id,
+			amountTotal,
+		});
 		return json(
 			{
 				reservationId: reservation.id,

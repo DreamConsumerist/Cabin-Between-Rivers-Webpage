@@ -2,22 +2,70 @@ import { jsonFetch } from "../../common/utilities";
 
 export type AdminSettings = {
 	id: number;
-	nightlyRate: number;
-	cleaningFee: number;
-	minNights: number;
-	baseOccupancy: number;
-	extraGuestFee: number;
+	configurationSwitchingEnabled: boolean;
 	airbnbIcalUrl: string | null;
 	vrboIcalUrl: string | null;
 };
 
 export type SettingsInput = {
+	configurationSwitchingEnabled: boolean;
+};
+
+// A bookable configuration of the cabin (e.g. "Whole Cabin" / "Downstairs
+// Only") — see db/schema.ts's bookingConfigurations. Each has its own
+// pricing; availability blocking is shared across all of them (same
+// physical property).
+export type BookingConfiguration = {
+	id: number;
+	name: string;
+	description: string | null;
 	nightlyRate: number;
 	cleaningFee: number;
 	minNights: number;
 	baseOccupancy: number;
 	extraGuestFee: number;
+	isDefault: boolean;
+	position: number;
 };
+
+export type BookingConfigurationInput = {
+	name: string;
+	description: string;
+	nightlyRate: number;
+	cleaningFee: number;
+	minNights: number;
+	baseOccupancy: number;
+	extraGuestFee: number;
+	isDefault: boolean;
+};
+
+export const fetchBookingConfigurations = (): Promise<{
+	configurations: Array<BookingConfiguration>;
+}> => jsonFetch("/api/admin-booking-configurations");
+
+export const createBookingConfiguration = (
+	input: BookingConfigurationInput
+): Promise<{ configuration: BookingConfiguration }> =>
+	jsonFetch("/api/admin-booking-configurations", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
+export const updateBookingConfiguration = (
+	id: number,
+	input: BookingConfigurationInput
+): Promise<{ configuration: BookingConfiguration }> =>
+	jsonFetch("/api/admin-booking-configurations", {
+		method: "PATCH",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ id, ...input }),
+	});
+
+export const deleteBookingConfiguration = (
+	id: number
+): Promise<{ deleted: boolean }> =>
+	jsonFetch(`/api/admin-booking-configurations?id=${id}`, { method: "DELETE" });
 
 export const fetchAdminMe = (): Promise<{ authenticated: boolean }> =>
 	jsonFetch("/api/admin-me");
@@ -112,6 +160,8 @@ export const updateAdminNotifications = (
 
 export type AdminBooking = {
 	id: number;
+	configurationId: number;
+	configurationName: string | null;
 	checkIn: string;
 	checkOut: string;
 	guestName: string;
@@ -175,6 +225,7 @@ export const updateAdminTerms = (
 
 export type PriceOverride = {
 	id: number;
+	configurationId: number;
 	checkIn: string;
 	checkOut: string;
 	nightlyRate: number;
@@ -182,15 +233,18 @@ export type PriceOverride = {
 };
 
 export type PriceOverrideInput = {
+	configurationId: number;
 	checkIn: string;
 	checkOut: string;
 	nightlyRate: number;
 	label: string;
 };
 
-export const fetchPriceOverrides = (): Promise<{
+export const fetchPriceOverrides = (
+	configurationId: number
+): Promise<{
 	overrides: Array<PriceOverride>;
-}> => jsonFetch("/api/admin-price-overrides");
+}> => jsonFetch(`/api/admin-price-overrides?configurationId=${configurationId}`);
 
 export const createPriceOverride = (
 	input: PriceOverrideInput

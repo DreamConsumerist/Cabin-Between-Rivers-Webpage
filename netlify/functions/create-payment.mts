@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import { getReservationById } from "../../lib/availability";
+import { getConfigurationById } from "../../lib/bookingConfigurations";
 import { getStripe } from "../../lib/stripe";
 
 const bodySchema = z.object({ reservationId: z.number().int().positive() });
@@ -44,6 +45,7 @@ export default withErrorHandling("create-payment", async (req, _context) => {
 	}
 
 	try {
+		const configuration = await getConfigurationById(reservation.configurationId);
 		const origin = new URL(req.url).origin;
 		const session = await getStripe().checkout.sessions.create(
 			{
@@ -56,12 +58,16 @@ export default withErrorHandling("create-payment", async (req, _context) => {
 							currency: "usd",
 							unit_amount: reservation.amountTotal,
 							product_data: {
-								name: `Cabin reservation: ${reservation.checkIn} to ${reservation.checkOut}`,
+								name: `${configuration?.name ?? "Cabin"} reservation: ${reservation.checkIn} to ${reservation.checkOut}`,
 							},
 						},
 					},
 				],
-				metadata: { reservationId: String(reservation.id) },
+				metadata: {
+					reservationId: String(reservation.id),
+					configurationId: String(reservation.configurationId),
+					configurationName: configuration?.name ?? "",
+				},
 				payment_intent_data: {
 					// Appended by Stripe as "<account's shortened descriptor>* <suffix>"
 					// on the guest's card statement. The account's shortened descriptor

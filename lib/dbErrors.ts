@@ -3,6 +3,24 @@
 // price_overrides_no_overlap).
 export const EXCLUSION_VIOLATION = "23P01";
 
+// Postgres foreign-key-violation error code — thrown when deleting a
+// bookingConfigurations row still referenced by a reservation/price_override
+// (see lib/bookingConfigurations.ts's deleteConfiguration).
+export const FOREIGN_KEY_VIOLATION = "23503";
+
+// Same cross-driver/cause-chain walk as isExclusionViolation, for FK
+// violations instead.
+export const isForeignKeyViolation = (e: unknown): boolean => {
+	let current: unknown = e;
+	for (let depth = 0; depth < 6 && current != null; depth++) {
+		const err = current as { code?: unknown; cause?: unknown };
+		if (err.code === FOREIGN_KEY_VIOLATION) return true;
+		current = err.cause;
+	}
+	const message = e instanceof Error ? e.message : String(e);
+	return /foreign key constraint/i.test(message);
+};
+
 // Detects an exclusion-constraint violation for the given constraint name,
 // across every shape it can arrive in: node-postgres (local `netlify dev`)
 // and Neon HTTP (production) expose `.code` and `.constraint` differently,

@@ -9,8 +9,10 @@ import {
 	adminCancelReservation,
 	adminLogin,
 	adminLogout,
+	createBookingConfiguration,
 	createManualBlock,
 	createPriceOverride,
+	deleteBookingConfiguration,
 	deleteManualBlock,
 	deletePriceOverride,
 	fetchAdminBookings,
@@ -19,6 +21,7 @@ import {
 	fetchAdminNotifications,
 	fetchAdminSettings,
 	fetchAdminTerms,
+	fetchBookingConfigurations,
 	fetchConflicts,
 	fetchPriceOverrides,
 	regenerateExportToken,
@@ -29,10 +32,13 @@ import {
 	updateAdminNotifications,
 	updateAdminSettings,
 	updateAdminTerms,
+	updateBookingConfiguration,
 	updatePriceOverride,
 	type AdminBooking,
 	type AdminExternalBlock,
 	type AdminSettings,
+	type BookingConfiguration,
+	type BookingConfigurationInput,
 	type Conflict,
 	type IcalSettings,
 	type IcalSyncSummary,
@@ -182,13 +188,15 @@ export const useUpdateAdminTerms = (): UseMutationResult<
 
 const PRICE_OVERRIDES_QUERY_KEY = ["price-overrides"];
 
-export const usePriceOverrides = (): UseQueryResult<
-	{ overrides: Array<PriceOverride> },
-	Error
-> =>
+// Scoped per-configuration (see db/schema.ts's priceOverrides) — the
+// Configurations tab's seasonal-pricing manager only ever edits one
+// configuration's overrides at a time.
+export const usePriceOverrides = (
+	configurationId: number
+): UseQueryResult<{ overrides: Array<PriceOverride> }, Error> =>
 	useQuery({
-		queryKey: PRICE_OVERRIDES_QUERY_KEY,
-		queryFn: fetchPriceOverrides,
+		queryKey: [...PRICE_OVERRIDES_QUERY_KEY, configurationId],
+		queryFn: () => fetchPriceOverrides(configurationId),
 	});
 
 export const useCreatePriceOverride = (): UseMutationResult<
@@ -228,6 +236,57 @@ export const useDeletePriceOverride = (): UseMutationResult<
 		mutationFn: (id: number) => deletePriceOverride(id),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: PRICE_OVERRIDES_QUERY_KEY }),
+	});
+};
+
+const BOOKING_CONFIGURATIONS_QUERY_KEY = ["booking-configurations"];
+
+export const useBookingConfigurations = (): UseQueryResult<
+	{ configurations: Array<BookingConfiguration> },
+	Error
+> =>
+	useQuery({
+		queryKey: BOOKING_CONFIGURATIONS_QUERY_KEY,
+		queryFn: fetchBookingConfigurations,
+	});
+
+export const useCreateBookingConfiguration = (): UseMutationResult<
+	{ configuration: BookingConfiguration },
+	Error,
+	BookingConfigurationInput
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: BookingConfigurationInput) => createBookingConfiguration(input),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: BOOKING_CONFIGURATIONS_QUERY_KEY }),
+	});
+};
+
+export const useUpdateBookingConfiguration = (): UseMutationResult<
+	{ configuration: BookingConfiguration },
+	Error,
+	{ id: number; input: BookingConfigurationInput }
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, input }: { id: number; input: BookingConfigurationInput }) =>
+			updateBookingConfiguration(id, input),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: BOOKING_CONFIGURATIONS_QUERY_KEY }),
+	});
+};
+
+export const useDeleteBookingConfiguration = (): UseMutationResult<
+	{ deleted: boolean },
+	Error,
+	number
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (id: number) => deleteBookingConfiguration(id),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: BOOKING_CONFIGURATIONS_QUERY_KEY }),
 	});
 };
 

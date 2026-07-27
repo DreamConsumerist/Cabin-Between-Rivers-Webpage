@@ -1,6 +1,7 @@
 import { json, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { listExternalBlocks, listReservations } from "../../lib/availability";
+import { listConfigurations } from "../../lib/bookingConfigurations";
 import { listManualBlocks } from "../../lib/manualBlocks";
 
 // GET /api/admin-bookings — reservation list + synced Airbnb/Vrbo blocks +
@@ -15,14 +16,17 @@ export default withErrorHandling("admin-bookings", async (req, _context) => {
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
 
-	const [rows, externalBlocks, manualBlocks] = await Promise.all([
+	const [rows, externalBlocks, manualBlocks, configurations] = await Promise.all([
 		listReservations(),
 		listExternalBlocks(),
 		listManualBlocks(),
+		listConfigurations(),
 	]);
+	const configurationNames = new Map(configurations.map((c) => [c.id, c.name]));
 	const reservations = rows.map(({ idPhotoBlobKey, ...rest }) => ({
 		...rest,
 		hasIdPhoto: idPhotoBlobKey != null,
+		configurationName: configurationNames.get(rest.configurationId) ?? null,
 	}));
 
 	return json({ reservations, externalBlocks, manualBlocks });

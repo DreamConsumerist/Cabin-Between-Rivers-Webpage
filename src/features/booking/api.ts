@@ -21,13 +21,22 @@ export type PriceOverride = {
 	label: string | null;
 };
 
+export type BookingConfigurationOption = Pricing & {
+	id: number;
+	name: string;
+	description: string | null;
+};
+
 export type AvailabilityResult = {
 	blocked: Array<BlockedRange>;
 	pricing: Pricing | null;
 	priceOverrides: Array<PriceOverride>;
+	configurationSwitchingEnabled: boolean;
+	configurations: Array<BookingConfigurationOption>;
 };
 
 export type CreateBookingInput = {
+	configurationId?: number;
 	checkIn: string;
 	checkOut: string;
 	guestName: string;
@@ -45,8 +54,10 @@ export type CreateBookingResult = {
 
 export type ReservationStatus = "pending" | "confirmed" | "expired" | "cancelled";
 
-export const fetchAvailability = (): Promise<AvailabilityResult> =>
-	jsonFetch("/api/check-availability");
+export const fetchAvailability = (configurationId?: number): Promise<AvailabilityResult> =>
+	jsonFetch(
+		`/api/check-availability${configurationId != null ? `?configurationId=${configurationId}` : ""}`
+	);
 
 export const createBooking = (input: CreateBookingInput): Promise<CreateBookingResult> =>
 	jsonFetch("/api/create-booking", {

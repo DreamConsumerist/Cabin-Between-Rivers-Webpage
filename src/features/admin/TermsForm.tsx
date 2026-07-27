@@ -18,7 +18,7 @@ export const TermsForm = (): FunctionComponent => {
 	} = useForm<TermsFormValues>({ resolver: zodResolver(termsFormSchema) });
 
 	// Populate the form once the current (or default) terms load — same
-	// pattern as SettingsForm, since the value isn't known at first render.
+	// pattern as ConfigurationForm, since the value isn't known at first render.
 	useEffect(() => {
 		if (data) reset({ termsContent: data.termsContent });
 	}, [data, reset]);

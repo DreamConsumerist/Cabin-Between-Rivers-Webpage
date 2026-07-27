@@ -8,8 +8,12 @@ export type LoginInput = z.infer<typeof loginSchema>;
 
 // Rates are entered in dollars in the UI and converted to cents before
 // hitting the API (the server, like the rest of the app, stores money in
-// integer cents — see db/schema.ts).
-export const settingsFormSchema = z.object({
+// integer cents — see db/schema.ts). One bookingConfigurations row's editable
+// fields (see db/schema.ts) — nightlyRate/cleaningFee/etc. used to live
+// directly on settings; they now live per-configuration instead.
+export const configurationFormSchema = z.object({
+	name: z.string().trim().min(1, "Required"),
+	description: z.string().trim().max(2000).optional().or(z.literal("")),
 	nightlyRate: z.coerce.number().min(0, "Must be 0 or more"),
 	cleaningFee: z.coerce.number().min(0, "Must be 0 or more"),
 	minNights: z.coerce.number().int().min(1, "Must be at least 1"),
@@ -17,8 +21,8 @@ export const settingsFormSchema = z.object({
 	extraGuestFee: z.coerce.number().min(0, "Must be 0 or more"),
 });
 
-export type SettingsFormInput = z.input<typeof settingsFormSchema>;
-export type SettingsFormValues = z.output<typeof settingsFormSchema>;
+export type ConfigurationFormInput = z.input<typeof configurationFormSchema>;
+export type ConfigurationFormValues = z.output<typeof configurationFormSchema>;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

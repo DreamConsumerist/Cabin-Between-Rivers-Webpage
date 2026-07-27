@@ -54,7 +54,11 @@ const toTelHref = (phone: string): string => {
 // children — DropdownMenu closes (and unmounts its children) as soon as any
 // child button is clicked, which would otherwise unmount the dialog the
 // instant it opened.
-const BookingActionsMenu = ({ reservation }: { reservation: AdminBooking }): FunctionComponent => {
+const BookingActionsMenu = ({
+	reservation,
+}: {
+	reservation: AdminBooking;
+}): FunctionComponent => {
 	const cancelReservation = useAdminCancelReservation();
 	const [confirming, setConfirming] = useState(false);
 	const isRefund = reservation.status === "confirmed";
@@ -66,7 +70,9 @@ const BookingActionsMenu = ({ reservation }: { reservation: AdminBooking }): Fun
 				<button
 					className="block w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-neutral-50"
 					type="button"
-					onClick={() => { setConfirming(true); }}
+					onClick={() => {
+						setConfirming(true);
+					}}
 				>
 					{confirmLabel}
 				</button>
@@ -84,7 +90,9 @@ const BookingActionsMenu = ({ reservation }: { reservation: AdminBooking }): Fun
 					}}
 					onConfirm={() => {
 						cancelReservation.mutate(reservation.id, {
-							onSuccess: () => { setConfirming(false); },
+							onSuccess: () => {
+								setConfirming(false);
+							},
 						});
 					}}
 				/>
@@ -111,7 +119,9 @@ export const BookingsList = (): FunctionComponent => {
 			.getElementById(`booking-${reservationId}`)
 			?.scrollIntoView({ behavior: "smooth", block: "center" });
 		setTimeout(() => {
-			setHighlightedId((current) => (current === reservationId ? null : current));
+			setHighlightedId((current) =>
+				current === reservationId ? null : current
+			);
 		}, HIGHLIGHT_MS);
 	};
 
@@ -124,9 +134,9 @@ export const BookingsList = (): FunctionComponent => {
 				<div className="mb-2 flex items-center gap-1.5">
 					<h2 className="text-sm font-semibold text-neutral-700">Calendar</h2>
 					<InfoTooltip label="About the calendar">
-						Click an open date to block it for that day. Click a different date to extend it into a
-						range. Clicking again starts a new selection — e.g. the cabin is closed, or family/friends
-						are staying.
+						Click an open date to block it for that day. Click a different date
+						to extend it into a range. Clicking again starts a new selection —
+						e.g. the cabin is closed, or family/friends are staying.
 					</InfoTooltip>
 				</div>
 				<BookingsCalendar
@@ -139,7 +149,9 @@ export const BookingsList = (): FunctionComponent => {
 
 			{reservations.length > 0 && (
 				<div>
-					<h2 className="mb-2 text-sm font-semibold text-neutral-700">All bookings</h2>
+					<h2 className="mb-2 text-sm font-semibold text-neutral-700">
+						All bookings
+					</h2>
 					<ul className="flex flex-col gap-3">
 						{reservations.map((reservation) => (
 							<li
@@ -155,11 +167,15 @@ export const BookingsList = (): FunctionComponent => {
 									<p className="font-medium text-neutral-800">
 										{reservation.guestName}{" "}
 										<span className="text-neutral-400">
-											· {reservation.guests} guest{reservation.guests === 1 ? "" : "s"}
+											· {reservation.guests} guest
+											{reservation.guests === 1 ? "" : "s"}
+											{reservation.configurationName &&
+												` · ${reservation.configurationName}`}
 										</span>
 									</p>
 									<p className="text-sm text-neutral-500">
-										{formatDate(reservation.checkIn)} – {formatDate(reservation.checkOut)} ·{" "}
+										{formatDate(reservation.checkIn)} –{" "}
+										{formatDate(reservation.checkOut)} ·{" "}
 										{formatCents(reservation.amountTotal)}
 									</p>
 									<p className="text-sm text-neutral-500">
@@ -167,7 +183,10 @@ export const BookingsList = (): FunctionComponent => {
 										{reservation.guestPhone && (
 											<>
 												{" · "}
-												<a className="underline" href={toTelHref(reservation.guestPhone)}>
+												<a
+													className="underline"
+													href={toTelHref(reservation.guestPhone)}
+												>
 													{formatPhone(reservation.guestPhone)}
 												</a>
 											</>
@@ -190,9 +209,12 @@ export const BookingsList = (): FunctionComponent => {
 											View ID
 										</a>
 									) : (
-										<span className="text-sm text-neutral-400">No ID uploaded</span>
+										<span className="text-sm text-neutral-400">
+											No ID uploaded
+										</span>
 									)}
-									{(reservation.status === "confirmed" || reservation.status === "pending") && (
+									{(reservation.status === "confirmed" ||
+										reservation.status === "pending") && (
 										<BookingActionsMenu reservation={reservation} />
 									)}
 								</div>

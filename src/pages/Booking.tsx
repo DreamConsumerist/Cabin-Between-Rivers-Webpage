@@ -7,7 +7,11 @@ import { Calendar, type DateSelection } from "../features/booking/Calendar";
 import { CheckoutStep } from "../features/booking/CheckoutStep";
 import { HoldTimer } from "../features/booking/HoldTimer";
 import { TermsStep } from "../features/booking/TermsStep";
-import { cancelReservation, type CreateBookingResult } from "../features/booking/api";
+import {
+	cancelReservation,
+	type BookingConfigurationOption,
+	type CreateBookingResult,
+} from "../features/booking/api";
 import {
 	buildNightlyBreakdown,
 	computeEstimatedSubtotalCents,
@@ -26,11 +30,12 @@ import type {
 	GuestDetailsInput,
 } from "../features/booking/schema";
 
-type Step = "dates" | "details" | "terms" | "payment";
+type Step = "configuration" | "dates" | "details" | "terms" | "payment";
 
 export const Booking = (): FunctionComponent => {
 	const queryClient = useQueryClient();
-	const availability = useAvailability();
+	const [configurationId, setConfigurationId] = useState<number | null>(null);
+	const availability = useAvailability(configurationId ?? undefined);
 	const createBookingMutation = useCreateBooking();
 	const cancelReservationMutation = useCancelReservation();
 
@@ -49,6 +54,11 @@ export const Booking = (): FunctionComponent => {
 	const [termsAccepted, setTermsAccepted] = useState(false);
 	const [idPhotoUploaded, setIdPhotoUploaded] = useState(false);
 
+	const configurationSwitchingEnabled =
+		availability.data?.configurationSwitchingEnabled ?? false;
+	const configurations: Array<BookingConfigurationOption> =
+		availability.data?.configurations ?? [];
+
 	const { checkIn, checkOut } = selection;
 	const nights = checkIn && checkOut ? checkOut.diff(checkIn, "day") : 0;
 	const pricing = availability.data?.pricing ?? null;
@@ -59,7 +69,12 @@ export const Booking = (): FunctionComponent => {
 	const priceOverrides = availability.data?.priceOverrides ?? [];
 	const estimatedSubtotal =
 		checkIn && checkOut && pricing
-			? computeEstimatedSubtotalCents(checkIn, checkOut, pricing, priceOverrides)
+			? computeEstimatedSubtotalCents(
+					checkIn,
+					checkOut,
+					pricing,
+					priceOverrides
+				)
 			: 0;
 	const estimatedTax = taxCentsFor(estimatedSubtotal);
 
@@ -70,9 +85,17 @@ export const Booking = (): FunctionComponent => {
 	const detailsGuests = Number(guestDetails?.guests) || 0;
 	const detailsSubtotal =
 		checkIn && checkOut && pricing
-			? computeEstimatedSubtotalCents(checkIn, checkOut, pricing, priceOverrides, detailsGuests)
+			? computeEstimatedSubtotalCents(
+					checkIn,
+					checkOut,
+					pricing,
+					priceOverrides,
+					detailsGuests
+				)
 			: 0;
-	const detailsExtraGuestFee = pricing ? estimatedExtraGuestFeeCents(pricing, detailsGuests) : 0;
+	const detailsExtraGuestFee = pricing
+		? estimatedExtraGuestFeeCents(pricing, detailsGuests)
+		: 0;
 	const detailsTax = taxCentsFor(detailsSubtotal);
 
 	const resetToDates = useCallback(() => {
@@ -112,6 +135,25 @@ export const Booking = (): FunctionComponent => {
 		stepRef.current = step;
 	}, [step]);
 
+	// Once we learn switching is enabled (only known after the first
+	// availability fetch resolves), send a guest who hasn't picked a
+	// configuration yet to that step before they see dates — but only at the
+	// very start; a guest who's already moved on shouldn't get yanked back.
+	// Adjusting state during render (React's documented alternative to a
+	// setState-in-effect) rather than a useEffect, guarded so it only ever
+	// fires once, the first render after availability.data resolves.
+	const [hasAppliedInitialStep, setHasAppliedInitialStep] = useState(false);
+	if (!hasAppliedInitialStep && availability.data) {
+		setHasAppliedInitialStep(true);
+		if (
+			configurationSwitchingEnabled &&
+			configurationId == null &&
+			step === "dates"
+		) {
+			setStep("configuration");
+		}
+	}
+
 	// Releases the hold if the guest navigates away from the booking page
 	// entirely (e.g. back to the landing page, or a browser back/forward) while
 	// a reservation is still pending. Mirrors the cancellation `goToStep` already
@@ -146,7 +188,9 @@ export const Booking = (): FunctionComponent => {
 			if (stepRef.current === "payment") return;
 			navigator.sendBeacon(
 				"/api/cancel-reservation",
-				new Blob([JSON.stringify({ reservationId })], { type: "application/json" })
+				new Blob([JSON.stringify({ reservationId })], {
+					type: "application/json",
+				})
 			);
 		};
 		window.addEventListener("pagehide", releaseOnUnload);
@@ -155,7 +199,9 @@ export const Booking = (): FunctionComponent => {
 		};
 	}, []);
 
-	const canGoToDetails = canContinueFromDates;
+	const canGoToDates =
+		!configurationSwitchingEnabled || configurationId != null;
+	const canGoToDetails = canGoToDates && canContinueFromDates;
 	const canGoToTerms = Boolean(reservation);
 	const canGoToPayment = canGoToTerms && termsAccepted && idPhotoUploaded;
 
@@ -167,6 +213,7 @@ export const Booking = (): FunctionComponent => {
 	// the same hold, so no cancellation is needed there.
 	const goToStep = (target: Step): void => {
 		if (target === step || cancelReservationMutation.isPending) return;
+		if (target === "dates" && !canGoToDates) return;
 		if (target === "details" && !canGoToDetails) return;
 		if (target === "terms" && !canGoToTerms) return;
 		if (target === "payment" && !canGoToPayment) return;
@@ -198,6 +245,7 @@ export const Booking = (): FunctionComponent => {
 		setNotice(null);
 		createBookingMutation.mutate(
 			{
+				configurationId: configurationId ?? undefined,
 				checkIn: toIsoDate(checkIn),
 				checkOut: toIsoDate(checkOut),
 				guestName: details.guestName,
@@ -233,20 +281,44 @@ export const Booking = (): FunctionComponent => {
 
 				<ol className="flex gap-6 text-sm">
 					{(
-						[
-							{ target: "dates", label: "1. Dates", enabled: true },
-							{
-								target: "details",
-								label: "2. Details",
-								enabled: canGoToDetails,
-							},
-							{ target: "terms", label: "3. Terms", enabled: canGoToTerms },
-							{
-								target: "payment",
-								label: "4. Payment",
-								enabled: canGoToPayment,
-							},
-						] as const
+						(configurationSwitchingEnabled
+							? [
+									{
+										target: "configuration",
+										label: "1. Configuration",
+										enabled: true,
+									},
+									{ target: "dates", label: "2. Dates", enabled: canGoToDates },
+									{
+										target: "details",
+										label: "3. Details",
+										enabled: canGoToDetails,
+									},
+									{ target: "terms", label: "4. Terms", enabled: canGoToTerms },
+									{
+										target: "payment",
+										label: "5. Payment",
+										enabled: canGoToPayment,
+									},
+								]
+							: [
+									{ target: "dates", label: "1. Dates", enabled: true },
+									{
+										target: "details",
+										label: "2. Details",
+										enabled: canGoToDetails,
+									},
+									{ target: "terms", label: "3. Terms", enabled: canGoToTerms },
+									{
+										target: "payment",
+										label: "4. Payment",
+										enabled: canGoToPayment,
+									},
+								]) satisfies Array<{
+							target: Step;
+							label: string;
+							enabled: boolean;
+						}>
 					).map(({ target, label, enabled }) => (
 						<li key={target}>
 							<button
@@ -270,6 +342,56 @@ export const Booking = (): FunctionComponent => {
 				</ol>
 
 				{notice && <p className="text-sm text-red-600">{notice}</p>}
+
+				{step === "configuration" && (
+					<div className="flex w-full max-w-lg flex-col items-center gap-4">
+						{availability.isPending && (
+							<p className="text-neutral-500">Loading options…</p>
+						)}
+						{availability.isError && (
+							<p className="text-red-600">
+								Could not load booking options. Try refreshing.
+							</p>
+						)}
+						{configurations.length > 0 && (
+							<ul className="flex w-full flex-col gap-3">
+								{configurations.map((configuration) => (
+									<li key={configuration.id}>
+										<button
+											className="flex w-full flex-col gap-2 rounded-lg border border-neutral-300 px-4 py-3 text-left transition-colors hover:border-brand-400 hover:bg-brand-50"
+											type="button"
+											onClick={() => {
+												setConfigurationId(configuration.id);
+												setStep("dates");
+											}}
+										>
+											<span className="font-semibold text-neutral-900">
+												{configuration.name}
+											</span>
+											{configuration.description && (
+												<span className="text-sm text-neutral-600">
+													{configuration.description}
+												</span>
+											)}
+											<span className="text-sm text-neutral-500">
+												{formatCents(configuration.nightlyRate)}/night ·{" "}
+												{formatCents(configuration.cleaningFee)} cleaning fee ·
+												min {configuration.minNights} night
+												{configuration.minNights === 1 ? "" : "s"}
+											</span>
+											{configuration.extraGuestFee > 0 && (
+												<span className="text-xs text-neutral-500">
+													+{formatCents(configuration.extraGuestFee)} per guest
+													after {configuration.baseOccupancy} guests
+												</span>
+											)}
+										</button>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+				)}
 
 				{step === "dates" && (
 					<div className="flex w-full max-w-sm flex-col items-center gap-4">
@@ -305,17 +427,20 @@ export const Booking = (): FunctionComponent => {
 						{checkIn && checkOut && pricing && !belowMinNights && (
 							<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
 								<ul className="flex flex-col gap-1">
-									{buildNightlyBreakdown(checkIn, checkOut, pricing, priceOverrides).map(
-										({ date, rateCents }) => (
-											<li
-												key={date.format("YYYY-MM-DD")}
-												className="flex justify-between text-neutral-600"
-											>
-												<span>{date.format("ddd, MMM D")}</span>
-												<span>{formatCents(rateCents)}</span>
-											</li>
-										)
-									)}
+									{buildNightlyBreakdown(
+										checkIn,
+										checkOut,
+										pricing,
+										priceOverrides
+									).map(({ date, rateCents }) => (
+										<li
+											key={date.format("YYYY-MM-DD")}
+											className="flex justify-between text-neutral-600"
+										>
+											<span>{date.format("ddd, MMM D")}</span>
+											<span>{formatCents(rateCents)}</span>
+										</li>
+									))}
 									<li className="flex justify-between text-neutral-600">
 										<span>Cleaning fee</span>
 										<span>{formatCents(pricing.cleaningFee)}</span>

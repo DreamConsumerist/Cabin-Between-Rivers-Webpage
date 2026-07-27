@@ -163,21 +163,17 @@ export const getSettings = async () => {
 	return rows[0] ?? null;
 };
 
-export type PricingUpdate = {
-	nightlyRate: number;
-	cleaningFee: number;
-	minNights: number;
-	baseOccupancy: number;
-	extraGuestFee: number;
+export type ConfigurationSwitchingUpdate = {
+	configurationSwitchingEnabled: boolean;
 };
 
 // The settings table is always a single row (see db/schema.ts) — update it if
 // it exists, otherwise create it (e.g. before it's ever been seeded). Scoped
-// to just the pricing fields — see updateIcalUrls/updateTermsContent for the
-// same single-row-upsert shape scoped to their own fields, so the Pricing,
+// to just this one flag — see updateIcalUrls/updateTermsContent for the same
+// single-row-upsert shape scoped to their own fields, so the Configurations,
 // iCal, and Terms admin tabs never resend each other's fields just to save
 // their own.
-export const updatePricingSettings = async (update: PricingUpdate) => {
+export const updateConfigurationSwitching = async (update: ConfigurationSwitchingUpdate) => {
 	const existing = await getSettings();
 	if (existing) {
 		const rows = await db
@@ -292,6 +288,7 @@ export const getReservationById = async (id: number) => {
 };
 
 export type NewReservation = {
+	configurationId: number;
 	checkIn: string;
 	checkOut: string;
 	guestName: string;
@@ -394,6 +391,7 @@ export const insertPendingReservation = async (r: NewReservation) => {
 	const rows = await db
 		.insert(reservations)
 		.values({
+			configurationId: r.configurationId,
 			checkIn: r.checkIn,
 			checkOut: r.checkOut,
 			guestName: r.guestName,

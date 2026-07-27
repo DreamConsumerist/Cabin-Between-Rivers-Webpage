@@ -20,8 +20,13 @@ import {
 	type ReservationStatus,
 } from "./api";
 
-export const useAvailability = (): UseQueryResult<AvailabilityResult, Error> =>
-	useQuery({ queryKey: ["availability"], queryFn: fetchAvailability });
+export const useAvailability = (
+	configurationId?: number
+): UseQueryResult<AvailabilityResult, Error> =>
+	useQuery({
+		queryKey: ["availability", configurationId ?? null],
+		queryFn: () => fetchAvailability(configurationId),
+	});
 
 export const useCreateBooking = (): UseMutationResult<
 	CreateBookingResult,

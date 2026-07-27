@@ -7,6 +7,7 @@ import {
 	timestamp,
 	uniqueIndex,
 	index,
+	boolean,
 } from "drizzle-orm/pg-core";
 
 // All money is stored as integer CENTS (matches Stripe's smallest-currency-unit
@@ -21,6 +22,39 @@ import {
 export const RESERVATION_STATUSES = ["pending", "confirmed", "expired", "cancelled"] as const;
 export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 
+// Bookable configurations of the one physical cabin (e.g. "Whole Cabin" vs
+// "Downstairs Only") — NOT separate properties. Exactly one row has
+// isDefault true; it's used whenever settings.configurationSwitchingEnabled
+// is false or a guest hasn't picked one yet. Each configuration has its own
+// pricing, but availability blocking (reservations/external_blocks/
+// manual_blocks and their no-overlap constraints) is deliberately NOT scoped
+// by configuration — booking either one occupies the same physical property,
+// so it must block the other for the same dates. See
+// reservations_no_overlap/manual_blocks_no_overlap: they stay global on
+// purpose. Only price_overrides is scoped per-configuration (see below),
+// since seasonal pricing can legitimately differ between configurations.
+export const bookingConfigurations = pgTable("booking_configurations", {
+	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	name: varchar({ length: 255 }).notNull(),
+	// Guest-facing blurb shown on the booking flow's configuration-picker step
+	// (see Booking.tsx) — e.g. what's included, sleeping arrangements. Null
+	// until an admin sets one; the picker just omits it in that case.
+	description: text("description"),
+	nightlyRate: integer("nightly_rate").notNull().default(0),
+	cleaningFee: integer("cleaning_fee").notNull().default(0),
+	minNights: integer("min_nights").notNull().default(1),
+	// Extra-guest surcharge: guests beyond baseOccupancy each add
+	// extraGuestFee (cents) to the subtotal — see
+	// lib/booking.ts's extraGuestFeeCents.
+	baseOccupancy: integer("base_occupancy").notNull().default(4),
+	extraGuestFee: integer("extra_guest_fee").notNull().default(2500),
+	isDefault: boolean("is_default").notNull().default(false),
+	position: integer().notNull().default(0),
+	createdAt: timestamp("created_at", { withTimezone: true })
+		.notNull()
+		.defaultNow(),
+});
+
 // Bookings made on THIS site. `status` drives availability:
 //   pending   — held while the guest completes payment (see holdExpiresAt)
 //   confirmed — payment succeeded (set by the Stripe webhook)
@@ -28,6 +62,14 @@ export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 //   cancelled — cancelled after confirmation
 export const reservations = pgTable("reservations", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	// Which configuration the guest booked (Whole Cabin vs Downstairs Only) —
+	// display/pricing/receipt only. Deliberately NOT part of
+	// reservations_no_overlap: two reservations for different configurations
+	// but overlapping dates must still conflict, since they're the same
+	// physical property.
+	configurationId: integer("configuration_id")
+		.notNull()
+		.references(() => bookingConfigurations.id),
 	checkIn: date("check_in").notNull(),
 	checkOut: date("check_out").notNull(),
 	guestName: varchar("guest_name", { length: 255 }).notNull(),
@@ -132,14 +174,12 @@ export const doubleBookingConflicts = pgTable(
 // Single-row configuration, editable without a redeploy.
 export const settings = pgTable("settings", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
-	nightlyRate: integer("nightly_rate").notNull().default(0),
-	cleaningFee: integer("cleaning_fee").notNull().default(0),
-	minNights: integer("min_nights").notNull().default(1),
-	// Extra-guest surcharge: guests beyond baseOccupancy each add
-	// extraGuestFee (cents) to the subtotal — see
-	// lib/booking.ts's extraGuestFeeCents.
-	baseOccupancy: integer("base_occupancy").notNull().default(4),
-	extraGuestFee: integer("extra_guest_fee").notNull().default(2500),
+	// Whether the booking flow shows a "pick your configuration" step before
+	// dates. When false, booking silently uses the isDefault
+	// bookingConfigurations row, same as before configurations existed.
+	configurationSwitchingEnabled: boolean("configuration_switching_enabled")
+		.notNull()
+		.default(false),
 	airbnbIcalUrl: text("airbnb_ical_url"),
 	vrboIcalUrl: text("vrbo_ical_url"),
 	// Comma-separated recipient list (see lib/mailer.ts), parsed into a
@@ -162,13 +202,21 @@ export const settings = pgTable("settings", {
 });
 
 // Seasonal price overrides, admin-managed from /admin. `nightlyRate` (cents)
-// applies to every night in [checkIn, checkOut) instead of settings.nightlyRate.
-// A GiST EXCLUDE constraint (added by hand in a follow-up migration, since
-// drizzle-kit can't express EXCLUDE — see reservations_no_overlap for the same
-// pattern) rejects overlapping ranges, so at most one override ever covers a
-// given night.
+// applies to every night in [checkIn, checkOut) instead of the configuration's
+// own nightlyRate. Scoped per-configuration (unlike reservations/
+// external_blocks/manual_blocks) since seasonal pricing can legitimately
+// differ between "Whole Cabin" and "Downstairs Only" — see
+// bookingConfigurations above. A GiST EXCLUDE constraint (added by hand in a
+// follow-up migration, since drizzle-kit can't express EXCLUDE — see
+// reservations_no_overlap for the same pattern) rejects overlapping ranges
+// *within the same configuration*, so at most one override ever covers a
+// given configuration's night, while two different configurations can each
+// have their own override for the same dates.
 export const priceOverrides = pgTable("price_overrides", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),
+	configurationId: integer("configuration_id")
+		.notNull()
+		.references(() => bookingConfigurations.id),
 	checkIn: date("check_in").notNull(),
 	checkOut: date("check_out").notNull(),
 	nightlyRate: integer("nightly_rate").notNull(),

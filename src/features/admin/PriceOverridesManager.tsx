@@ -26,12 +26,18 @@ const centsToDollars = (cents: number): number => Math.round(cents) / 100;
 const dollarsToCents = (dollars: number): number => Math.round(dollars * 100);
 
 type NewOverrideFormProps = {
+	configurationId: number;
 	checkIn: Dayjs;
 	checkOut: Dayjs;
 	onSaved: () => void;
 };
 
-const NewOverrideForm = ({ checkIn, checkOut, onSaved }: NewOverrideFormProps): FunctionComponent => {
+const NewOverrideForm = ({
+	configurationId,
+	checkIn,
+	checkOut,
+	onSaved,
+}: NewOverrideFormProps): FunctionComponent => {
 	const create = useCreatePriceOverride();
 	const {
 		register,
@@ -48,6 +54,7 @@ const NewOverrideForm = ({ checkIn, checkOut, onSaved }: NewOverrideFormProps): 
 			onSubmit={handleSubmit((values) => {
 				create.mutate(
 					{
+						configurationId,
 						checkIn: toIsoDate(checkIn),
 						checkOut: toIsoDate(checkOut),
 						nightlyRate: dollarsToCents(values.nightlyRate),
@@ -119,6 +126,7 @@ const OverrideRow = ({ override }: OverrideRowProps): FunctionComponent => {
 								update.mutate({
 									id: override.id,
 									input: {
+										configurationId: override.configurationId,
 										checkIn: override.checkIn,
 										checkOut: override.checkOut,
 										nightlyRate: dollarsToCents(Number(rate)),
@@ -163,8 +171,14 @@ const OverrideRow = ({ override }: OverrideRowProps): FunctionComponent => {
 	);
 };
 
-export const PriceOverridesManager = (): FunctionComponent => {
-	const { data, isPending, error } = usePriceOverrides();
+type PriceOverridesManagerProps = {
+	configurationId: number;
+};
+
+export const PriceOverridesManager = ({
+	configurationId,
+}: PriceOverridesManagerProps): FunctionComponent => {
+	const { data, isPending, error } = usePriceOverrides(configurationId);
 	const [selection, setSelection] = useState<DateSelection>({ checkIn: null, checkOut: null });
 	const overrides = data?.overrides ?? [];
 
@@ -181,6 +195,7 @@ export const PriceOverridesManager = (): FunctionComponent => {
 				<NewOverrideForm
 					checkIn={selection.checkIn}
 					checkOut={selection.checkOut}
+					configurationId={configurationId}
 					onSaved={() => { setSelection({ checkIn: null, checkOut: null }); }}
 				/>
 			) : (

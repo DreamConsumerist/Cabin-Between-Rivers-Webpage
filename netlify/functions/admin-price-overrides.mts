@@ -14,6 +14,7 @@ import {
 
 const overrideFieldsSchema = z
 	.object({
+		configurationId: z.number().int().positive(),
 		checkIn: isoDateSchema,
 		checkOut: isoDateSchema,
 		nightlyRate: z.number().int().min(0),
@@ -36,6 +37,7 @@ const handleCreate = async (req: Request): Promise<Response> => {
 
 	try {
 		const override = await createPriceOverride({
+			configurationId: parsed.data.configurationId,
 			checkIn: parsed.data.checkIn,
 			checkOut: parsed.data.checkOut,
 			nightlyRate: parsed.data.nightlyRate,
@@ -63,6 +65,7 @@ const handleUpdate = async (req: Request): Promise<Response> => {
 
 	try {
 		const override = await updatePriceOverride(parsed.data.id, {
+			configurationId: parsed.data.configurationId,
 			checkIn: parsed.data.checkIn,
 			checkOut: parsed.data.checkOut,
 			nightlyRate: parsed.data.nightlyRate,
@@ -93,8 +96,13 @@ export default withErrorHandling("admin-price-overrides", async (req, _context) 
 
 	try {
 		switch (req.method) {
-			case "GET":
-				return json({ overrides: await listPriceOverrides() });
+			case "GET": {
+				const configurationId = Number(new URL(req.url).searchParams.get("configurationId"));
+				if (!Number.isInteger(configurationId) || configurationId <= 0) {
+					return error("A valid configurationId is required");
+				}
+				return json({ overrides: await listPriceOverrides(configurationId) });
+			}
 			case "POST":
 				return await handleCreate(req);
 			case "PATCH":

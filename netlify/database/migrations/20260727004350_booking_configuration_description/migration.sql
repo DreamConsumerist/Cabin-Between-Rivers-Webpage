@@ -1,0 +1,1 @@
+ALTER TABLE "booking_configurations" ADD COLUMN "description" text;
