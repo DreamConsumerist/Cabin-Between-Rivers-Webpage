@@ -8,6 +8,7 @@ import {
 	uniqueIndex,
 	index,
 	boolean,
+	type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 // All money is stored as integer CENTS (matches Stripe's smallest-currency-unit
@@ -221,6 +222,15 @@ export const priceOverrides = pgTable("price_overrides", {
 	checkOut: date("check_out").notNull(),
 	nightlyRate: integer("nightly_rate").notNull(),
 	label: varchar({ length: 255 }),
+	// True on every row belonging to an active recurring series (the root row
+	// and all its generated copies) — see lib/priceOverrides.ts's
+	// createRecurringPriceOverride/extendRecurringSeries/endRecurringSeries.
+	recurring: boolean().notNull().default(false),
+	// Null on a series' root row, and set to the root's id on every row
+	// generated from it. Self-referencing FK (first in this schema) — no
+	// onDelete convention needed since series rows are always deleted
+	// explicitly (children before root) rather than relying on cascade.
+	seriesParentId: integer("series_parent_id").references((): AnyPgColumn => priceOverrides.id),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),

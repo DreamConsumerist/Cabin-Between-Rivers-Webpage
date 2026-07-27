@@ -90,7 +90,6 @@ export const PriceOverrideCalendar = ({
 					return (
 						<button
 							key={date.format("YYYY-MM-DD")}
-							title={override ? `${formatCents(override.nightlyRate)}/night${override.label ? ` — ${override.label}` : ""}` : undefined}
 							type="button"
 							className={[
 								"flex aspect-square flex-col items-center justify-center rounded-md border text-sm transition-colors",
@@ -104,11 +103,17 @@ export const PriceOverrideCalendar = ({
 									? "border-neutral-200 hover:border-brand-400 hover:bg-brand-50"
 									: "",
 							].join(" ")}
+							title={
+								override
+									? `${formatCents(override.nightlyRate)}/night${override.label ? ` — ${override.label}` : ""}${override.recurring ? " (recurring)" : ""}`
+									: undefined
+							}
 							onClick={() => { handleDayClick(date); }}
 						>
 							<span>{date.date()}</span>
 							{override && !isEndpoint && (
 								<span className="text-[9px] leading-none text-amber-700">
+									{override.recurring && "↻ "}
 									{formatCents(override.nightlyRate)}
 								</span>
 							)}

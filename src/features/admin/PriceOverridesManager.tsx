@@ -45,7 +45,7 @@ const NewOverrideForm = ({
 		formState: { errors },
 	} = useForm<PriceOverrideFormInput, unknown, PriceOverrideFormValues>({
 		resolver: zodResolver(priceOverrideFormSchema),
-		defaultValues: { nightlyRate: 0, label: "" },
+		defaultValues: { nightlyRate: 0, label: "", recurring: false },
 	});
 
 	return (
@@ -59,6 +59,7 @@ const NewOverrideForm = ({
 						checkOut: toIsoDate(checkOut),
 						nightlyRate: dollarsToCents(values.nightlyRate),
 						label: values.label ?? "",
+						recurring: values.recurring,
 					},
 					{ onSuccess: onSaved }
 				);
@@ -76,6 +77,10 @@ const NewOverrideForm = ({
 				error={errors.nightlyRate?.message}
 			/>
 			<TextField label="Label (optional)" {...register("label")} error={errors.label?.message} />
+			<label className="flex items-center gap-2 text-sm text-neutral-700">
+				<input type="checkbox" {...register("recurring")} />
+				Recurring (auto-renews ~2 years ahead every January)
+			</label>
 			<Button disabled={create.isPending} type="submit">
 				{create.isPending ? "Saving…" : "Save override"}
 			</Button>
@@ -102,6 +107,11 @@ const OverrideRow = ({ override }: OverrideRowProps): FunctionComponent => {
 					<span className="text-sm text-neutral-700">
 						{dayjs(override.checkIn).format("MMM D, YYYY")} – {dayjs(override.checkOut).format("MMM D, YYYY")}
 					</span>
+					{override.recurring && (
+						<span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+							Recurring
+						</span>
+					)}
 					<input
 						className="w-24 rounded-lg border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-brand-400"
 						min={0}
@@ -154,8 +164,12 @@ const OverrideRow = ({ override }: OverrideRowProps): FunctionComponent => {
 					confirmLabel="Delete"
 					error={deleteOverride.error?.message}
 					isPending={deleteOverride.isPending}
-					message="Delete this price override?"
 					title="Delete price override"
+					message={
+						override.recurring
+							? "This is part of a recurring series. Deleting it ends the series — this and every future auto-generated date will be removed."
+							: "Delete this price override?"
+					}
 					onCancel={() => {
 						deleteOverride.reset();
 						setConfirmingDelete(false);

@@ -5,11 +5,14 @@ import { requireAdmin } from "../../lib/adminAuth";
 import { isoDateSchema } from "../../lib/booking";
 import {
 	createPriceOverride,
+	createRecurringPriceOverride,
 	deletePriceOverride,
+	endRecurringSeries,
 	getPriceOverrideById,
 	isPriceOverrideOverlapError,
 	listPriceOverrides,
 	updatePriceOverride,
+	updatePriceOverrideAndPropagate,
 } from "../../lib/priceOverrides";
 
 const overrideFieldsSchema = z
@@ -19,6 +22,7 @@ const overrideFieldsSchema = z
 		checkOut: isoDateSchema,
 		nightlyRate: z.number().int().min(0),
 		label: z.string().trim().max(255).optional(),
+		recurring: z.boolean().optional().default(false),
 	})
 	.refine((v) => dayjs(v.checkOut).isAfter(dayjs(v.checkIn)), {
 		message: "checkOut must be after checkIn",
@@ -36,13 +40,16 @@ const handleCreate = async (req: Request): Promise<Response> => {
 	if (!parsed.success) return json({ error: "Invalid price override", issues: parsed.error.issues }, 400);
 
 	try {
-		const override = await createPriceOverride({
+		const fields = {
 			configurationId: parsed.data.configurationId,
 			checkIn: parsed.data.checkIn,
 			checkOut: parsed.data.checkOut,
 			nightlyRate: parsed.data.nightlyRate,
 			label: parsed.data.label && parsed.data.label.length > 0 ? parsed.data.label : null,
-		});
+		};
+		const override = parsed.data.recurring
+			? await createRecurringPriceOverride(fields)
+			: await createPriceOverride(fields);
 		return json({ override }, 201);
 	} catch (e) {
 		if (isPriceOverrideOverlapError(e)) {
@@ -64,13 +71,16 @@ const handleUpdate = async (req: Request): Promise<Response> => {
 	if (!existing) return error("Price override not found", 404);
 
 	try {
-		const override = await updatePriceOverride(parsed.data.id, {
+		const fields = {
 			configurationId: parsed.data.configurationId,
 			checkIn: parsed.data.checkIn,
 			checkOut: parsed.data.checkOut,
 			nightlyRate: parsed.data.nightlyRate,
 			label: parsed.data.label && parsed.data.label.length > 0 ? parsed.data.label : null,
-		});
+		};
+		const override = existing.recurring
+			? await updatePriceOverrideAndPropagate(parsed.data.id, fields)
+			: await updatePriceOverride(parsed.data.id, fields);
 		return json({ override });
 	} catch (e) {
 		if (isPriceOverrideOverlapError(e)) {
@@ -85,7 +95,10 @@ const handleDelete = async (req: Request): Promise<Response> => {
 	const id = Number(new URL(req.url).searchParams.get("id"));
 	if (!Number.isInteger(id) || id <= 0) return error("A valid id is required");
 
-	const deleted = await deletePriceOverride(id);
+	const existing = await getPriceOverrideById(id);
+	if (!existing) return error("Price override not found", 404);
+
+	const deleted = existing.recurring ? await endRecurringSeries(id) : await deletePriceOverride(id);
 	if (!deleted) return error("Price override not found", 404);
 	return json({ deleted: true });
 };

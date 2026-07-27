@@ -64,6 +64,7 @@ export type TermsFormValues = z.infer<typeof termsFormSchema>;
 export const priceOverrideFormSchema = z.object({
 	nightlyRate: z.coerce.number().min(0, "Must be 0 or more"),
 	label: z.string().trim().max(255).optional().or(z.literal("")),
+	recurring: z.boolean().default(false),
 });
 
 export type PriceOverrideFormInput = z.input<typeof priceOverrideFormSchema>;

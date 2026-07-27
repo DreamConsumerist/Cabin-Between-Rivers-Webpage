@@ -230,6 +230,7 @@ export type PriceOverride = {
 	checkOut: string;
 	nightlyRate: number;
 	label: string | null;
+	recurring: boolean;
 };
 
 export type PriceOverrideInput = {
@@ -238,6 +239,7 @@ export type PriceOverrideInput = {
 	checkOut: string;
 	nightlyRate: number;
 	label: string;
+	recurring?: boolean;
 };
 
 export const fetchPriceOverrides = (
