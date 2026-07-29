@@ -1,6 +1,6 @@
 import { json, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
-import { listExternalBlocks, listReservations } from "../../lib/availability";
+import { expireLapsedHolds, listExternalBlocks, listReservations } from "../../lib/availability";
 import { listConfigurations } from "../../lib/bookingConfigurations";
 import { listManualBlocks } from "../../lib/manualBlocks";
 
@@ -15,6 +15,15 @@ export default withErrorHandling("admin-bookings", async (req, _context) => {
 
 	const notAllowed = requireMethod(req, "GET");
 	if (notAllowed) return notAllowed;
+
+	// No scheduled cron does this cleanup (removed — see git history): a lapsed
+	// hold already can't block availability or the EXCLUDE constraint (see
+	// activeReservation() in lib/availability.ts), and create-booking expires
+	// lapsed holds on demand before it needs them cleared. The only thing that
+	// cares about the stale `pending` status is this admin list's display, so
+	// it's cleared here, on demand, rather than on a timer that would otherwise
+	// keep the database compute running around the clock for no benefit.
+	await expireLapsedHolds();
 
 	const [rows, externalBlocks, manualBlocks, configurations] = await Promise.all([
 		listReservations(),

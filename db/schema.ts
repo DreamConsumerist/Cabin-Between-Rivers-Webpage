@@ -59,7 +59,7 @@ export const bookingConfigurations = pgTable("booking_configurations", {
 // Bookings made on THIS site. `status` drives availability:
 //   pending   — held while the guest completes payment (see holdExpiresAt)
 //   confirmed — payment succeeded (set by the Stripe webhook)
-//   expired   — hold lapsed before payment (freed by the expire-holds cron)
+//   expired   — hold lapsed before payment (freed on demand — see expireLapsedHolds callers)
 //   cancelled — cancelled after confirmation
 export const reservations = pgTable("reservations", {
 	id: integer().primaryKey().generatedAlwaysAsIdentity(),

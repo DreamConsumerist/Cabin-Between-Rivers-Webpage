@@ -39,10 +39,10 @@ export const withErrorHandling =
 		}
 	};
 
-// Same contract as withErrorHandling above, for the two scheduled (cron)
-// functions (expire-holds.mts, ical-sync.mts), whose signature has no
-// Request/Response — a thrown error there has no caller to see it, so
-// without this it's invisible outside the Netlify function log.
+// Same contract as withErrorHandling above, for the scheduled (cron)
+// function (ical-sync.mts), whose signature has no Request/Response — a
+// thrown error there has no caller to see it, so without this it's invisible
+// outside the Netlify function log.
 export const withScheduledErrorHandling =
 	(name: string, handler: () => Promise<void>) =>
 	async (): Promise<void> => {
