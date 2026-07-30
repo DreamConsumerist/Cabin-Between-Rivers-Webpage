@@ -369,6 +369,8 @@ export type ExternalBlockRow = {
 	source: "airbnb" | "vrbo";
 	checkIn: string;
 	checkOut: string;
+	summary: string | null;
+	reservationUrl: string | null;
 };
 
 // Synced Airbnb/Vrbo blocks, newest check-in first — backs the admin Bookings
@@ -380,6 +382,8 @@ export const listExternalBlocks = async (): Promise<ExternalBlockRow[]> => {
 			source: externalBlocks.source,
 			checkIn: externalBlocks.checkIn,
 			checkOut: externalBlocks.checkOut,
+			summary: externalBlocks.summary,
+			reservationUrl: externalBlocks.reservationUrl,
 		})
 		.from(externalBlocks)
 		.orderBy(desc(externalBlocks.checkIn));

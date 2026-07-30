@@ -7,7 +7,25 @@ import { flagDoubleBooking } from "./conflicts";
 
 export type IcalSource = "airbnb" | "vrbo";
 
-export type ParsedBlock = { uid: string; checkIn: string; checkOut: string };
+export type ParsedBlock = {
+	uid: string;
+	checkIn: string;
+	checkOut: string;
+	summary?: string;
+	reservationUrl?: string;
+};
+
+// Matches the first http(s) URL in a VEVENT DESCRIPTION. Airbnb's feed embeds
+// a "Reservation URL: https://www.airbnb.com/hosting/reservations/details/..."
+// line here for "Reserved" events; this is the only reliable way to link an
+// admin straight to that specific reservation, since the feed URL itself
+// carries no listing/reservation ID we can build a link from ourselves.
+const URL_PATTERN = /https?:\/\/\S+/;
+
+const extractReservationUrl = (description: unknown): string | undefined => {
+	if (typeof description !== "string") return undefined;
+	return URL_PATTERN.exec(description)?.[0];
+};
 
 // UTC-safe extraction: node-ical parses VALUE=DATE (all-day) DTSTART/DTEND as
 // Date objects representing UTC midnight of that calendar day (marked with
@@ -44,8 +62,10 @@ const toParsedBlocks = (calendar: CalendarResponse): ParsedBlock[] => {
 		// RFC 5545: a VALUE=DATE event with no DTEND has an implicit one-day
 		// duration.
 		const checkOut = event.end ? toIsoDate(event.end) : addOneDay(checkIn);
+		const summary = typeof event.summary === "string" ? event.summary : undefined;
+		const reservationUrl = extractReservationUrl(event.description);
 
-		blocks.push({ uid: event.uid, checkIn, checkOut });
+		blocks.push({ uid: event.uid, checkIn, checkOut, summary, reservationUrl });
 	}
 	return blocks;
 };
@@ -135,19 +155,31 @@ export const syncSource = async (source: IcalSource, url: string): Promise<Sourc
 				uid: block.uid,
 				checkIn: block.checkIn,
 				checkOut: block.checkOut,
+				summary: block.summary ?? null,
+				reservationUrl: block.reservationUrl ?? null,
 				lastSyncedAt: new Date(),
 			})
 			.onConflictDoUpdate({
 				target: [externalBlocks.source, externalBlocks.uid],
-				set: { checkIn: block.checkIn, checkOut: block.checkOut, lastSyncedAt: new Date() },
+				set: {
+					checkIn: block.checkIn,
+					checkOut: block.checkOut,
+					summary: block.summary ?? null,
+					reservationUrl: block.reservationUrl ?? null,
+					lastSyncedAt: new Date(),
+				},
 			});
 	}
 	// Bump lastSyncedAt for unchanged rows too, for staleness observability —
-	// no upsert needed, they already exist.
+	// no date upsert needed, they already match, but summary/reservationUrl are
+	// re-written since those can change without the dates changing (e.g. a
+	// block gains a reservation link once actually booked) and doing so here
+	// doesn't affect diffBlocks' inserted/updated/unchanged classification,
+	// which is date-only and drives conflict re-alerting.
 	for (const block of unchanged) {
 		await db
 			.update(externalBlocks)
-			.set({ lastSyncedAt: new Date() })
+			.set({ summary: block.summary ?? null, reservationUrl: block.reservationUrl ?? null, lastSyncedAt: new Date() })
 			.where(and(eq(externalBlocks.source, source), eq(externalBlocks.uid, block.uid)));
 	}
 

@@ -180,6 +180,8 @@ export type AdminExternalBlock = {
 	source: "airbnb" | "vrbo";
 	checkIn: string;
 	checkOut: string;
+	summary: string | null;
+	reservationUrl: string | null;
 };
 
 export type ManualBlock = {

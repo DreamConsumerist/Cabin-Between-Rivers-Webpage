@@ -32,9 +32,13 @@ const STATUS_CELL_STYLE: Record<"pending" | "confirmed", string> = {
 
 // Platform blocks are visually distinct from site reservations (rose/sky vs.
 // amber/green) so an admin can tell at a glance which dates are held by an
-// external calendar sync rather than a direct booking. There's no listing
-// page on file (only the .ics sync URL is stored — see IcalForm.tsx), so a
-// click opens the platform's homepage rather than the specific listing.
+// external calendar sync rather than a direct booking. Clicking one opens
+// that block's reservationUrl (extracted from the feed's DESCRIPTION at sync
+// time — see extractReservationUrl in lib/icalSync.ts) when the platform
+// provided one, e.g. Airbnb includes a reservation-details link for actual
+// bookings. Falls back to the platform's homepage otherwise (no listing page
+// is on file — only the .ics sync URL is stored, see IcalForm.tsx — and Vrbo
+// generally doesn't include a per-reservation link in its feed at all).
 const PLATFORM_INFO: Record<
 	AdminExternalBlock["source"],
 	{ label: string; url: string; cellStyle: string; swatchStyle: string }
@@ -428,13 +432,21 @@ export const BookingsCalendar = ({
 								if (reservation) {
 									onSelect(reservation.id);
 								} else if (platform) {
-									window.open(platform.url, "_blank", "noopener,noreferrer");
+									window.open(
+										externalBlock!.reservationUrl ?? platform.url,
+										"_blank",
+										"noopener,noreferrer"
+									);
 								} else if (manualBlock) {
 									setBlockPendingDelete(manualBlock);
 								} else if (departingReservation) {
 									onSelect(departingReservation.id);
 								} else if (departingPlatform) {
-									window.open(departingPlatform.url, "_blank", "noopener,noreferrer");
+									window.open(
+										departingExternalBlock!.reservationUrl ?? departingPlatform.url,
+										"_blank",
+										"noopener,noreferrer"
+									);
 								} else if (departingManualBlock) {
 									setBlockPendingDelete(departingManualBlock);
 								} else {

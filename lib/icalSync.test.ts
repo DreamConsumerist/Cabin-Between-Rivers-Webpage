@@ -26,7 +26,13 @@ describe("parseIcsText", () => {
 		);
 
 		expect(parseIcsText(ics)).toEqual([
-			{ uid: "block-1@airbnb.com", checkIn: "2026-08-01", checkOut: "2026-08-05" },
+			{
+				uid: "block-1@airbnb.com",
+				checkIn: "2026-08-01",
+				checkOut: "2026-08-05",
+				summary: "Reserved",
+				reservationUrl: undefined,
+			},
 		]);
 	});
 
@@ -40,7 +46,13 @@ describe("parseIcsText", () => {
 		);
 
 		expect(parseIcsText(ics)).toEqual([
-			{ uid: "block-2@airbnb.com", checkIn: "2026-08-10", checkOut: "2026-08-11" },
+			{
+				uid: "block-2@airbnb.com",
+				checkIn: "2026-08-10",
+				checkOut: "2026-08-11",
+				summary: "Reserved",
+				reservationUrl: undefined,
+			},
 		]);
 	});
 
@@ -87,8 +99,50 @@ describe("parseIcsText", () => {
 		);
 
 		expect(parseIcsText(ics)).toEqual([
-			{ uid: "block-5@vrbo.com", checkIn: "2026-01-01", checkOut: "2026-01-02" },
+			{
+				uid: "block-5@vrbo.com",
+				checkIn: "2026-01-01",
+				checkOut: "2026-01-02",
+				summary: "Reserved",
+				reservationUrl: undefined,
+			},
 		]);
+	});
+
+	it("extracts the reservation URL from DESCRIPTION when present", () => {
+		const ics = wrap(
+			"BEGIN:VEVENT\r\n" +
+				"UID:block-6@airbnb.com\r\n" +
+				"DTSTART;VALUE=DATE:20260901\r\n" +
+				"DTEND;VALUE=DATE:20260903\r\n" +
+				"SUMMARY:Reserved\r\n" +
+				"DESCRIPTION:Reservation URL: https://www.airbnb.com/hosting/reservations/details/HMABC123\\n\r\n" +
+				"END:VEVENT\r\n"
+		);
+
+		expect(parseIcsText(ics)).toEqual([
+			{
+				uid: "block-6@airbnb.com",
+				checkIn: "2026-09-01",
+				checkOut: "2026-09-03",
+				summary: "Reserved",
+				reservationUrl: "https://www.airbnb.com/hosting/reservations/details/HMABC123",
+			},
+		]);
+	});
+
+	it("leaves reservationUrl undefined when DESCRIPTION has no URL (e.g. a typical Vrbo block)", () => {
+		const ics = wrap(
+			"BEGIN:VEVENT\r\n" +
+				"UID:block-7@vrbo.com\r\n" +
+				"DTSTART;VALUE=DATE:20260910\r\n" +
+				"DTEND;VALUE=DATE:20260912\r\n" +
+				"SUMMARY:Reserved\r\n" +
+				"DESCRIPTION:Blocked\\n\r\n" +
+				"END:VEVENT\r\n"
+		);
+
+		expect(parseIcsText(ics)[0]!.reservationUrl).toBeUndefined();
 	});
 });
 

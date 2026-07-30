@@ -115,6 +115,15 @@ export const externalBlocks = pgTable(
 		uid: varchar({ length: 512 }).notNull(),
 		checkIn: date("check_in").notNull(),
 		checkOut: date("check_out").notNull(),
+		// Raw VEVENT SUMMARY (e.g. "Reserved" vs "Airbnb (Not available)") — lets
+		// the admin UI tell an actual guest booking apart from an owner-side hold.
+		summary: varchar({ length: 255 }),
+		// First http(s) URL found in the VEVENT DESCRIPTION, if any. Airbnb's feed
+		// embeds a reservation-details link here for "Reserved" events; Vrbo's
+		// feed generally doesn't include one. Used to deep-link the admin
+		// calendar straight to the platform's reservation page instead of just
+		// its homepage — see BookingsCalendar.tsx.
+		reservationUrl: text("reservation_url"),
 		lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
 			.notNull()
 			.defaultNow(),
