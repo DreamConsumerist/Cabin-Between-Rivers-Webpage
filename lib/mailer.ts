@@ -1,5 +1,14 @@
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+import type { Dayjs } from "dayjs";
 import { getSettings } from "./availability";
+import { DEFAULT_CHECKIN_INSTRUCTIONS, DEFAULT_CHECKOUT_INSTRUCTIONS } from "./guestEmails";
+import { renderTermsHtml } from "./terms";
+
+// timezone depends on utc — see dayjs's own plugin docs, this order matters.
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 // Read lazily, same reasoning as lib/adminAuth.ts's getEnv — a missing key
 // should only break the send path, not every function at boot.
@@ -31,14 +40,25 @@ export type SendEmailInput = {
 	text: string;
 	html?: string;
 	replyTo?: string[];
+	// ISO 8601 UTC timestamp — Resend delivers at this instant instead of
+	// immediately (see scheduleCheckInReminder/scheduleCheckOutReminder
+	// below). Omitted entirely for every other caller, which sends right away.
+	scheduledAt?: string;
 };
 
 // Minimal Resend REST call — no SDK, matching this codebase's lean-dependency
 // style (this is the only third-party HTTP call in the app made via plain
 // fetch rather than an SDK; see lib/stripe.ts for the SDK-based alternative).
-// Throws on a non-2xx response; notifyDoubleBooking below is the only caller
-// and is responsible for never letting that propagate to ITS caller.
-export const sendEmail = async ({ to, subject, text, html, replyTo }: SendEmailInput): Promise<void> => {
+// Throws on a non-2xx response — every caller in this file wraps its own call
+// in try/catch and is responsible for never letting that propagate further.
+export const sendEmail = async ({
+	to,
+	subject,
+	text,
+	html,
+	replyTo,
+	scheduledAt,
+}: SendEmailInput): Promise<{ id: string }> => {
 	const apiKey = getEnv("RESEND_API_KEY");
 	const from = getEnv("NOTIFICATION_FROM_EMAIL");
 
@@ -55,12 +75,37 @@ export const sendEmail = async ({ to, subject, text, html, replyTo }: SendEmailI
 			text,
 			...(html ? { html } : {}),
 			...(replyTo && replyTo.length > 0 ? { reply_to: replyTo } : {}),
+			...(scheduledAt ? { scheduled_at: scheduledAt } : {}),
 		}),
 	});
 
 	if (!response.ok) {
 		const body = await response.text().catch(() => "");
 		throw new Error(`Resend API error ${response.status}: ${body}`);
+	}
+
+	return response.json() as Promise<{ id: string }>;
+};
+
+// POST /emails/{id}/cancel — aborts a still-pending scheduled send (e.g. a
+// reservation was cancelled before its check-in reminder went out). A no-op
+// from Resend's side if the email already sent or was already cancelled.
+// Never throws (log + swallow) — same contract as every other notify*/send*
+// helper in this file: cancelling a reminder must never break the
+// cancellation/refund flow that triggered it.
+export const cancelScheduledEmail = async (emailId: string): Promise<void> => {
+	try {
+		const apiKey = getEnv("RESEND_API_KEY");
+		const response = await fetch(`https://api.resend.com/emails/${emailId}/cancel`, {
+			method: "POST",
+			headers: { Authorization: `Bearer ${apiKey}` },
+		});
+		if (!response.ok) {
+			const body = await response.text().catch(() => "");
+			throw new Error(`Resend cancel API error ${response.status}: ${body}`);
+		}
+	} catch (e) {
+		console.error(`cancelScheduledEmail: failed to cancel ${emailId}`, e);
 	}
 };
 
@@ -413,4 +458,179 @@ export const notifyDoubleBooking = async (details: DoubleBookingDetails): Promis
 	} catch (e) {
 		console.error("notifyDoubleBooking: failed to send notification", e);
 	}
+};
+
+// --- Guest arrival/departure reminders (scheduled via Resend, no polling cron) ---
+//
+// Rather than a cron that periodically checks "is anyone checking in soon,"
+// each reminder is scheduled with Resend's own scheduled_at at the earliest
+// point it's known to be needed: right when a booking is confirmed (see
+// stripe-webhook.mts), for the common case where check-in is soon. Resend
+// caps scheduled_at at 30 days out, so a booking made further ahead than that
+// can't be scheduled yet — netlify/functions/schedule-guest-emails.mts sweeps
+// for those every two weeks and schedules them once they enter the window.
+// reservations.checkInEmailId/checkOutEmailId (see db/schema.ts) record the
+// Resend email id once scheduled, so both paths can skip a reservation that's
+// already been handled.
+
+// The cabin is in Alaska. Per this project's timezone convention (see
+// SETUP.md): internal time handling stays in UTC everywhere; anything a user
+// or admin sets or views is in AKST. settings.checkInReminderHour/
+// checkOutReminderHour (below) are the concrete example — an admin-set AKST
+// wall-clock hour, converted to UTC only where scheduled_at is computed.
+const CABIN_TIMEZONE = "America/Anchorage";
+const DEFAULT_CHECKIN_REMINDER_HOUR = 9;
+const DEFAULT_CHECKOUT_REMINDER_HOUR = 8;
+const CHECKIN_REMINDER_LEAD_DAYS = 2;
+// One day of margin under Resend's exact 30-day scheduling cap, so clock
+// drift or a slightly-late cron run never gets rejected as "too far out."
+const MAX_SCHEDULE_DAYS = 29;
+
+export type GuestReminderReservation = {
+	id: number;
+	guestName: string;
+	guestEmail: string;
+	checkIn: string;
+	checkOut: string;
+};
+
+export type GuestEmailSettings = {
+	checkInInstructions: string | null;
+	checkOutInstructions: string | null;
+	checkInReminderHour: number | null;
+	checkOutReminderHour: number | null;
+};
+
+type ScheduleDecision = { kind: "schedule"; scheduledAt: string } | { kind: "skip" };
+
+// `idealLocal` is the target send time (already at the configured AKST hour).
+// `eventDate` is the check-in/check-out date itself, used only to detect a
+// stay that's already fully over — once past the end of that day (AKST),
+// there's nothing useful left to remind anyone about.
+const decideScheduleTime = (idealLocal: Dayjs, eventDate: string): ScheduleDecision => {
+	const now = dayjs();
+	const eventCutoff = dayjs.tz(eventDate, CABIN_TIMEZONE).endOf("day");
+	if (eventCutoff.isBefore(now)) return { kind: "skip" };
+
+	// The ideal lead time already passed (e.g. a far-out booking only just
+	// picked up by the twice-monthly sweep, with days to spare before check-in
+	// but not the full intended lead time) — better a late reminder than none.
+	if (idealLocal.isBefore(now)) {
+		return { kind: "schedule", scheduledAt: now.add(5, "minute").toISOString() };
+	}
+	if (idealLocal.diff(now, "day") > MAX_SCHEDULE_DAYS) return { kind: "skip" };
+	return { kind: "schedule", scheduledAt: idealLocal.toISOString() };
+};
+
+const checkInReminderHtml = (reservation: GuestReminderReservation, instructions: string): string => {
+	const checkIn = dayjs(reservation.checkIn).format("MMM D, YYYY");
+	return emailShell(`
+		<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">Your check-in is coming up</p>
+		<p style="margin:0 0 24px;font-size:15px;color:#333333;line-height:1.5;">
+			Hi ${escapeHtml(reservation.guestName)}, your check-in (${checkIn}) is almost here.
+		</p>
+		<div style="font-size:15px;color:#333333;line-height:1.5;">${renderTermsHtml(instructions)}</div>
+	`);
+};
+
+const checkOutReminderHtml = (reservation: GuestReminderReservation, instructions: string): string => {
+	const checkOut = dayjs(reservation.checkOut).format("MMM D, YYYY");
+	return emailShell(`
+		<p style="margin:0 0 16px;font-size:22px;font-weight:600;color:#3d5817;">Check-out is today</p>
+		<p style="margin:0 0 24px;font-size:15px;color:#333333;line-height:1.5;">
+			Hi ${escapeHtml(reservation.guestName)}, thanks for staying with us! Your check-out (${checkOut}) is today.
+		</p>
+		<div style="font-size:15px;color:#333333;line-height:1.5;">${renderTermsHtml(instructions)}</div>
+	`);
+};
+
+// Schedules the arrival-instructions reminder via Resend's scheduled_at (2
+// days before check-in, at the admin-configured AKST hour) and returns the
+// Resend email id to persist on the reservation row — or null if it
+// shouldn't be scheduled (yet): the stay is already over, or check-in is
+// further out than Resend's scheduling window allows (the twice-monthly cron
+// will retry once it's in range). Never throws — same "must not break the
+// caller" contract as notifyBookingConfirmed above, since both
+// stripe-webhook.mts and the cron treat this as best-effort.
+export const scheduleCheckInReminder = async (
+	reservation: GuestReminderReservation,
+	settings: GuestEmailSettings | null
+): Promise<string | null> => {
+	try {
+		const hour = settings?.checkInReminderHour ?? DEFAULT_CHECKIN_REMINDER_HOUR;
+		const idealLocal = dayjs
+			.tz(reservation.checkIn, CABIN_TIMEZONE)
+			.subtract(CHECKIN_REMINDER_LEAD_DAYS, "day")
+			.hour(hour)
+			.minute(0)
+			.second(0)
+			.millisecond(0);
+		const decision = decideScheduleTime(idealLocal, reservation.checkIn);
+		if (decision.kind === "skip") return null;
+
+		const instructions = settings?.checkInInstructions?.trim() || DEFAULT_CHECKIN_INSTRUCTIONS;
+		const checkIn = dayjs(reservation.checkIn).format("MMM D, YYYY");
+		const { id } = await sendEmail({
+			to: [reservation.guestEmail],
+			subject: `Your check-in (${checkIn}) is coming up`,
+			text: `Hi ${reservation.guestName},\n\nYour check-in (${checkIn}) is almost here.\n\n${instructions}`,
+			html: checkInReminderHtml(reservation, instructions),
+			scheduledAt: decision.scheduledAt,
+		});
+		return id;
+	} catch (e) {
+		console.error(`scheduleCheckInReminder: failed for reservation ${reservation.id}`, e);
+		return null;
+	}
+};
+
+// Schedules the pre-checkout reminder via Resend's scheduled_at (the morning
+// of check-out, at the admin-configured AKST hour) — same contract as
+// scheduleCheckInReminder above (never throws, returns null when not (yet)
+// schedulable).
+export const scheduleCheckOutReminder = async (
+	reservation: GuestReminderReservation,
+	settings: GuestEmailSettings | null
+): Promise<string | null> => {
+	try {
+		const hour = settings?.checkOutReminderHour ?? DEFAULT_CHECKOUT_REMINDER_HOUR;
+		const idealLocal = dayjs
+			.tz(reservation.checkOut, CABIN_TIMEZONE)
+			.hour(hour)
+			.minute(0)
+			.second(0)
+			.millisecond(0);
+		const decision = decideScheduleTime(idealLocal, reservation.checkOut);
+		if (decision.kind === "skip") return null;
+
+		const instructions = settings?.checkOutInstructions?.trim() || DEFAULT_CHECKOUT_INSTRUCTIONS;
+		const checkOut = dayjs(reservation.checkOut).format("MMM D, YYYY");
+		const { id } = await sendEmail({
+			to: [reservation.guestEmail],
+			subject: "Check-out is today — a few things before you go",
+			text: `Hi ${reservation.guestName},\n\nThanks for staying with us! Your check-out (${checkOut}) is today.\n\n${instructions}`,
+			html: checkOutReminderHtml(reservation, instructions),
+			scheduledAt: decision.scheduledAt,
+		});
+		return id;
+	} catch (e) {
+		console.error(`scheduleCheckOutReminder: failed for reservation ${reservation.id}`, e);
+		return null;
+	}
+};
+
+// Cancels whichever of a reservation's scheduled reminders were already
+// scheduled (either may be null — e.g. cancelled before the check-out
+// reminder's own booking-time scheduling attempt succeeded). Called from
+// both cancellation flows (cancel-my-reservation.mts,
+// admin-cancel-reservation.mts) right after the cancellation itself succeeds.
+export const cancelGuestReminderEmails = async (reservation: {
+	checkInEmailId: string | null;
+	checkOutEmailId: string | null;
+}): Promise<void> => {
+	await Promise.all(
+		[reservation.checkInEmailId, reservation.checkOutEmailId]
+			.filter((id): id is string => id !== null)
+			.map((id) => cancelScheduledEmail(id))
+	);
 };

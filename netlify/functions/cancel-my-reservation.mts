@@ -3,7 +3,7 @@ import { z } from "zod";
 import { constantTimeEquals } from "../../lib/adminAuth";
 import { adminCancelReservation, getReservationById } from "../../lib/availability";
 import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
-import { notifyGuestCancellation, sendCancellationEmail } from "../../lib/mailer";
+import { cancelGuestReminderEmails, notifyGuestCancellation, sendCancellationEmail } from "../../lib/mailer";
 import { reportCritical } from "../../lib/sentry";
 import { refundPayment } from "../../lib/stripe";
 
@@ -141,6 +141,7 @@ export default withErrorHandling("cancel-my-reservation", async (req, _context) 
 				checkOut: cancelled.checkOut,
 				amountTotal: cancelled.amountTotal,
 			});
+			await cancelGuestReminderEmails(reservation);
 
 			return json({ cancelled: true });
 		} catch (e) {

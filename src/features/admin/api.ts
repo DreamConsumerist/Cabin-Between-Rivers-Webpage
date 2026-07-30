@@ -180,6 +180,8 @@ export type AdminExternalBlock = {
 	source: "airbnb" | "vrbo";
 	checkIn: string;
 	checkOut: string;
+	summary: string | null;
+	reservationUrl: string | null;
 };
 
 export type ManualBlock = {
@@ -221,6 +223,25 @@ export const updateAdminTerms = (
 		method: "PUT",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ termsContent }),
+	});
+
+export type GuestEmailSettings = {
+	checkInInstructions: string;
+	checkOutInstructions: string;
+	checkInReminderHour: number;
+	checkOutReminderHour: number;
+};
+
+export const fetchAdminGuestEmails = (): Promise<GuestEmailSettings> =>
+	jsonFetch("/api/admin-guest-emails");
+
+export const updateAdminGuestEmails = (
+	input: GuestEmailSettings
+): Promise<GuestEmailSettings> =>
+	jsonFetch("/api/admin-guest-emails", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
 	});
 
 export type PriceOverride = {

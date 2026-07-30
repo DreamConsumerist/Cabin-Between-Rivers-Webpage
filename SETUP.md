@@ -8,6 +8,19 @@ Reference: the full technical plan lives at
 
 ---
 
+## Conventions
+
+- **Timezones**: internal time handling is always UTC — dates/timestamps are computed, stored,
+  and compared in UTC everywhere in the codebase. Anything a user or admin *sets* or *views* is in
+  **AKST** (`America/Anchorage`, which also covers the AKDT daylight-savings shift automatically)
+  since the cabin itself is in Alaska. Conversion between the two happens only at that boundary —
+  e.g. `settings.checkInReminderHour`/`checkOutReminderHour` (see "Guest reminder emails" below)
+  are AKST wall-clock hours an admin sets from `/admin`, converted to UTC only where
+  `lib/mailer.ts` computes the actual send time. Established by that feature; keep following it
+  for any future time-of-day setting or display.
+
+---
+
 ## Already done (in the repo)
 
 - ✅ Cleansed React/Vite/TS app, builds and lints clean (`pnpm build`, `pnpm lint`).
@@ -80,6 +93,22 @@ Reference: the full technical plan lives at
   `Sentry.ErrorBoundary` in `src/App.tsx` catching a render-time exception instead of blanking the
   page. Replaces `settings.errorNotificationEmails`, which has been removed — see "Later phases"
   below.
+- ✅ Guest reminder emails (arrival + checkout), scheduled without a polling cron: `lib/mailer.ts`'s
+  `scheduleCheckInReminder`/`scheduleCheckOutReminder` use Resend's own `scheduled_at` (supported up
+  to 30 days ahead) instead of a cron that periodically checks "is anyone checking in soon" — the
+  send is scheduled once, at the earliest point it's known to be needed, and Resend delivers it at
+  the right moment. Scheduled immediately when a booking is confirmed
+  (`netlify/functions/stripe-webhook.mts`) for the common case where check-in is soon; a booking
+  made further out than Resend's window is picked up by
+  `netlify/functions/schedule-guest-emails.mts`, a twice-monthly (1st/15th) catch-all sweep — the
+  only cron this feature needs. `reservations.checkInEmailId`/`checkOutEmailId` (see db/schema.ts)
+  track what's been scheduled so both paths skip a reservation already handled, and so
+  `cancel-my-reservation.mts`/`admin-cancel-reservation.mts` can cancel a still-pending scheduled
+  email via `cancelGuestReminderEmails` if the booking is cancelled first. Email content
+  (arrival instructions, checkout steps) and each reminder's AKST send hour are admin-editable from
+  the `/admin` **Guest Emails** tab (`netlify/functions/admin-guest-emails.mts`), same
+  "plain text, falls back to a default" pattern as the Terms tab. See "Conventions" above for the
+  UTC/AKST split this feature established.
 - ✅ Real local Postgres for `netlify dev` (`pnpm db:local`, `scripts/local-db.mjs`): `netlify dev`'s
   built-in local database (PGlite) has almost no extensions compiled in, which permanently blocked any
   migration needing one (e.g. `btree_gist`) — and netlify-cli has no config flag to redirect that
@@ -347,7 +376,9 @@ out of `netlify.toml` and any tracked `.env`.
   block overlaps a reservation already active on the site, or when a Stripe payment confirms into
   dates that were rebooked in the meantime. The recipient address(es) are admin-configurable from
   the iCal tab in `/admin` (stored in the `settings` table, not an env var), same reasoning as the
-  iCal URLs above.
+  iCal URLs above. The same two env vars also cover every other guest email (booking confirmation,
+  cancellation, and the scheduled check-in/check-out reminders — see "Guest reminder emails"
+  above) — Resend is the app's only email provider, there's no separate credential per email type.
 - **Admin panel:** `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET` — see "Admin panel" above.
 - **Error monitoring (Sentry):** `SENTRY_DSN` (server, Netlify Functions scope) and
   `VITE_SENTRY_DSN` (client — Vite exposes anything prefixed `VITE_`). Create a free-tier project

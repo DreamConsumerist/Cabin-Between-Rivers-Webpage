@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, gt, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { db } from "../db/client";
 import { externalBlocks, manualBlocks, reservations, settings } from "../db/schema";
 import { HOLD_MINUTES } from "./booking";
@@ -369,6 +369,8 @@ export type ExternalBlockRow = {
 	source: "airbnb" | "vrbo";
 	checkIn: string;
 	checkOut: string;
+	summary: string | null;
+	reservationUrl: string | null;
 };
 
 // Synced Airbnb/Vrbo blocks, newest check-in first — backs the admin Bookings
@@ -380,10 +382,75 @@ export const listExternalBlocks = async (): Promise<ExternalBlockRow[]> => {
 			source: externalBlocks.source,
 			checkIn: externalBlocks.checkIn,
 			checkOut: externalBlocks.checkOut,
+			summary: externalBlocks.summary,
+			reservationUrl: externalBlocks.reservationUrl,
 		})
 		.from(externalBlocks)
 		.orderBy(desc(externalBlocks.checkIn));
 	return rows.map((r) => ({ ...r, source: r.source as "airbnb" | "vrbo" }));
+};
+
+export type GuestEmailSettingsUpdate = {
+	checkInInstructions: string | null;
+	checkOutInstructions: string | null;
+	checkInReminderHour: number | null;
+	checkOutReminderHour: number | null;
+};
+
+// Same single-row-upsert shape as `updateTermsContent`, scoped to the four
+// guest-reminder-email fields (see netlify/functions/admin-guest-emails.mts) —
+// kept separate so the Guest Emails admin tab doesn't need to resend the
+// Terms/iCal/notification fields (and vice versa) just to save its own.
+export const updateGuestEmailSettings = async (update: GuestEmailSettingsUpdate) => {
+	const existing = await getSettings();
+	if (existing) {
+		const rows = await db
+			.update(settings)
+			.set(update)
+			.where(eq(settings.id, existing.id))
+			.returning();
+		return rows[0]!;
+	}
+	const rows = await db.insert(settings).values(update).returning();
+	return rows[0]!;
+};
+
+export type GuestEmailSchedulingCandidate = {
+	id: number;
+	guestName: string;
+	guestEmail: string;
+	checkIn: string;
+	checkOut: string;
+	checkInEmailId: string | null;
+	checkOutEmailId: string | null;
+};
+
+// Confirmed reservations still missing at least one scheduled reminder — the
+// working set for netlify/functions/schedule-guest-emails.mts's twice-monthly
+// catch-all sweep (reservations booked further out than Resend's scheduling
+// window allows at confirmation time — see stripe-webhook.mts and
+// lib/mailer.ts). A reservation scheduled at booking-confirmation time never
+// shows up here at all.
+export const getReservationsNeedingGuestEmailScheduling = async (): Promise<
+	GuestEmailSchedulingCandidate[]
+> => {
+	return db
+		.select({
+			id: reservations.id,
+			guestName: reservations.guestName,
+			guestEmail: reservations.guestEmail,
+			checkIn: reservations.checkIn,
+			checkOut: reservations.checkOut,
+			checkInEmailId: reservations.checkInEmailId,
+			checkOutEmailId: reservations.checkOutEmailId,
+		})
+		.from(reservations)
+		.where(
+			and(
+				eq(reservations.status, "confirmed"),
+				or(isNull(reservations.checkInEmailId), isNull(reservations.checkOutEmailId))
+			)
+		);
 };
 
 export const insertPendingReservation = async (r: NewReservation) => {

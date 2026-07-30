@@ -2,7 +2,7 @@ import { z } from "zod";
 import { error, json, parseJsonBody, requireMethod, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { adminCancelReservation, getReservationById } from "../../lib/availability";
-import { sendCancellationEmail } from "../../lib/mailer";
+import { cancelGuestReminderEmails, sendCancellationEmail } from "../../lib/mailer";
 import { reportCritical } from "../../lib/sentry";
 import { refundPayment } from "../../lib/stripe";
 
@@ -62,6 +62,7 @@ export default withErrorHandling("admin-cancel-reservation", async (req, _contex
 				amountTotal: cancelled.amountTotal,
 				refunded,
 			});
+			await cancelGuestReminderEmails(reservation);
 		}
 		return json({ reservation: cancelled, refunded });
 	} catch (e) {
