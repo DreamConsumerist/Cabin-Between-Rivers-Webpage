@@ -5,12 +5,11 @@ import { syncCalendars } from "../../lib/icalSync";
 // Scheduled iCal sync: pulls the Airbnb/Vrbo .ics feeds into external_blocks
 // so those dates block the site's own availability (see lib/icalSync.ts).
 // This is the only remaining cron in the app (holds are expired on demand,
-// not on a timer — see expireLapsedHolds callers) — every 30 minutes keeps
-// the double-booking window reasonably small while comfortably exceeding
-// Netlify DB's ~5-minute compute auto-suspend idle window, so the database
-// still scales to zero between runs instead of staying active around the
-// clock. Scheduled functions run only on production deploys, in UTC, and
-// return no response body.
+// not on a timer — see expireLapsedHolds callers) — hourly gives the
+// database a longer idle window between runs (vs. every 30 minutes) to stay
+// scaled to zero and keep compute credits down, at the cost of a larger
+// double-booking window. Scheduled functions run only on production
+// deploys, in UTC, and return no response body.
 export default withScheduledErrorHandling("ical-sync", async () => {
 	const summary = await syncCalendars();
 	for (const result of summary.results) {
@@ -18,4 +17,4 @@ export default withScheduledErrorHandling("ical-sync", async () => {
 	}
 });
 
-export const config: Config = { schedule: "*/30 * * * *" };
+export const config: Config = { schedule: "0 * * * *" };

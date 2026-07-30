@@ -17,6 +17,14 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // every gap crossing.
 const HOVER_CLEAR_DELAY_MS = 75;
 
+// A split-day cell's two triangles otherwise share one exact diagonal edge,
+// which makes two similarly-colored bookings (e.g. both confirmed, both
+// green) blend into what looks like a single uninterrupted stay. Shrinking
+// each triangle's hypotenuse inward by this many pixels — see the two
+// clip-path polygons below — leaves a sliver of the cell's own background
+// showing as a visible seam between them.
+const SPLIT_GAP_PX = 2;
+
 const STATUS_CELL_STYLE: Record<"pending" | "confirmed", string> = {
 	pending: "border-amber-300 bg-amber-100 text-amber-800",
 	confirmed: "border-green-300 bg-green-100 text-green-800",
@@ -87,6 +95,63 @@ const manualBlockForDate = (
 			date.isBefore(dayjs(b.checkOut), "day")
 	);
 
+// The other side of a turnover day: something departing exactly on `date`,
+// keyed on checkOut rather than range containment. [checkIn, checkOut) never
+// attributes the checkOut day itself to the departing item (see the
+// *ForDate functions above), so without this, a departure gets no
+// representation at all whenever another item checks in the same day — the
+// arriving item's color/label just silently wins the whole cell.
+const reservationDepartingOnDate = (
+	date: Dayjs,
+	reservations: Array<AdminBooking>
+): ActiveBooking | undefined =>
+	reservations.filter(isActive).find((r) => date.isSame(r.checkOut, "day"));
+
+const externalBlockDepartingOnDate = (
+	date: Dayjs,
+	externalBlocks: Array<AdminExternalBlock>
+): AdminExternalBlock | undefined => externalBlocks.find((b) => date.isSame(b.checkOut, "day"));
+
+const manualBlockDepartingOnDate = (
+	date: Dayjs,
+	manualBlocks: Array<ManualBlock>
+): ManualBlock | undefined => manualBlocks.find((b) => date.isSame(b.checkOut, "day"));
+
+type OccupantInfo = { cellStyle: string; label: string; title: string };
+
+// Resolves whichever of the three (at most one, by construction — see
+// callers) into the display info a cell needs. Shared between the arriving
+// and departing side of a day so both are described identically.
+const describeOccupant = (
+	reservation: ActiveBooking | undefined,
+	externalBlock: AdminExternalBlock | undefined,
+	manualBlock: ManualBlock | undefined
+): OccupantInfo | undefined => {
+	if (reservation) {
+		return {
+			cellStyle: STATUS_CELL_STYLE[reservation.status],
+			label: reservation.guestName,
+			title: `${reservation.guestName} · ${dayjs(reservation.checkIn).format("MMM D")} – ${dayjs(reservation.checkOut).format("MMM D")} · ${reservation.status}`,
+		};
+	}
+	if (externalBlock) {
+		const platform = PLATFORM_INFO[externalBlock.source];
+		return {
+			cellStyle: platform.cellStyle,
+			label: platform.label,
+			title: `${platform.label} · ${dayjs(externalBlock.checkIn).format("MMM D")} – ${dayjs(externalBlock.checkOut).format("MMM D")}`,
+		};
+	}
+	if (manualBlock) {
+		return {
+			cellStyle: MANUAL_CELL_STYLE,
+			label: manualBlock.note ?? "Blocked",
+			title: `${manualBlock.note ?? "Manually blocked"} · ${dayjs(manualBlock.checkIn).format("MMM D")} – ${dayjs(manualBlock.checkOut).format("MMM D")}`,
+		};
+	}
+	return undefined;
+};
+
 type BookingsCalendarProps = {
 	reservations: Array<AdminBooking>;
 	externalBlocks: Array<AdminExternalBlock>;
@@ -125,10 +190,38 @@ export const BookingsCalendar = ({
 	const [visibleMonth, setVisibleMonth] = useState(() =>
 		today.startOf("month")
 	);
+	// Which single occupant's key is currently hovered. Deliberately one key,
+	// not a per-cell set — see hoverHandlersFor below for why hover listeners
+	// live on each color region individually rather than on the day cell as a
+	// whole.
 	const [hoveredKey, setHoveredKey] = useState<string | null>(null);
 	const hoverClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null
 	);
+
+	// A turnover day's button is one element, but its two triangles represent
+	// two unrelated occupants — attaching hover to the *button* would broadcast
+	// both sides' keys the instant the pointer entered either triangle, which
+	// is exactly the bug this fixes (hovering the check-out half lighting up
+	// the check-in half too). Attaching these to each triangle span instead
+	// means the browser's own clip-path hit-testing decides which one the
+	// pointer is actually over, for free.
+	const hoverHandlersFor = (key: string | null): { onMouseEnter: () => void; onMouseLeave: () => void } => ({
+		onMouseEnter: (): void => {
+			if (!key) return;
+			if (hoverClearTimeoutRef.current !== null) {
+				clearTimeout(hoverClearTimeoutRef.current);
+				hoverClearTimeoutRef.current = null;
+			}
+			setHoveredKey(key);
+		},
+		onMouseLeave: (): void => {
+			if (!key) return;
+			hoverClearTimeoutRef.current = setTimeout(() => {
+				setHoveredKey((current) => (current === key ? null : current));
+			}, HOVER_CLEAR_DELAY_MS);
+		},
+	});
 	const [selection, setSelection] = useState<DateSelection>({ checkIn: null, checkOut: null });
 	const [note, setNote] = useState("");
 	const [blockPendingDelete, setBlockPendingDelete] = useState<ManualBlock | null>(null);
@@ -236,20 +329,68 @@ export const BookingsCalendar = ({
 							: manualBlock
 								? date.isSame(manualBlock.checkIn, "day")
 								: false;
-					const hoverKey = reservation
+					// A full night (occupied, but not itself the check-in day) stays a
+					// plain solid-colored cell, same as always. Check-in and check-out
+					// are each their own half of their own day — always, not only when
+					// a second item happens to share it — so `arriving` only applies on
+					// the exact check-in day, independent of whether anything's also
+					// departing that same day.
+					const occupiedInfo = describeOccupant(reservation, externalBlock, manualBlock);
+					const isMiddleOccupied = Boolean(occupiedInfo) && !isCheckIn;
+					const arriving = isCheckIn ? occupiedInfo : undefined;
+
+					// Checked on every day (not just check-in days): a checkout with no
+					// same-day check-in still gets its own half — this is the case that
+					// used to render as a plain, fully available day with no trace of
+					// the checkout at all. Skipped when this date is a genuine mid-stay
+					// night (isMiddleOccupied) — a departure landing inside another
+					// item's active stay would mean the two overlap, a data conflict
+					// already surfaced elsewhere, not something this cosmetic split
+					// should try to render.
+					const departingReservation = isMiddleOccupied
+						? undefined
+						: reservationDepartingOnDate(date, reservations);
+					const departingExternalBlock =
+						!isMiddleOccupied && !departingReservation
+							? externalBlockDepartingOnDate(date, externalBlocks)
+							: undefined;
+					const departingManualBlock =
+						!isMiddleOccupied && !departingReservation && !departingExternalBlock
+							? manualBlockDepartingOnDate(date, manualBlocks)
+							: undefined;
+					const departing = describeOccupant(departingReservation, departingExternalBlock, departingManualBlock);
+					const departingPlatform = departingExternalBlock ? PLATFORM_INFO[departingExternalBlock.source] : undefined;
+					const hasSplit = !isMiddleOccupied && Boolean(arriving || departing);
+
+					// Click falls back to the departing side when there's no arriving
+					// occupant — so a reservation's checkout day acts like part of
+					// that reservation (clicking it does the same thing clicking any
+					// of its other days does) instead of behaving like an empty,
+					// unrelated day just because it's not "occupied" for blocking
+					// purposes.
+					const arrivingHoverKey = reservation
 						? `reservation-${reservation.id}`
 						: externalBlock
 							? `external-${externalBlock.id}`
 							: manualBlock
 								? `manual-${manualBlock.id}`
 								: null;
-					const title = reservation
-						? `${reservation.guestName} · ${dayjs(reservation.checkIn).format("MMM D")} – ${dayjs(reservation.checkOut).format("MMM D")} · ${reservation.status}`
-						: externalBlock && platform
-							? `${platform.label} · ${dayjs(externalBlock.checkIn).format("MMM D")} – ${dayjs(externalBlock.checkOut).format("MMM D")}`
-							: manualBlock
-								? `${manualBlock.note ?? "Manually blocked"} · ${dayjs(manualBlock.checkIn).format("MMM D")} – ${dayjs(manualBlock.checkOut).format("MMM D")} · click to remove`
-								: undefined;
+					const departingHoverKey = departingReservation
+						? `reservation-${departingReservation.id}`
+						: departingExternalBlock
+							? `external-${departingExternalBlock.id}`
+							: departingManualBlock
+								? `manual-${departingManualBlock.id}`
+								: null;
+					const isDepartingHovered = departingHoverKey !== null && hoveredKey === departingHoverKey;
+					const isArrivingHovered = arrivingHoverKey !== null && hoveredKey === arrivingHoverKey;
+
+					const baseTitle =
+						departing && arriving
+							? `${departing.title} → ${arriving.title}`
+							: (departing?.title ?? arriving?.title);
+					const clickTargetsManualBlock = manualBlock ?? (arriving ? undefined : departingManualBlock);
+					const title = clickTargetsManualBlock && baseTitle ? `${baseTitle} · click to remove` : baseTitle;
 
 					return (
 						<button
@@ -261,19 +402,26 @@ export const BookingsCalendar = ({
 								// the guest-name label. The label is an absolutely-positioned
 								// overlay (below) rather than a second flex line, so it can
 								// never make this box (or, via aspect-ratio's transferred sizing,
-								// its grid column) grow or shrink.
-								"relative flex aspect-square items-center justify-center rounded-md border text-sm transition-colors",
+								// its grid column) grow or shrink. overflow-hidden keeps the
+								// occupant-color overlays (below) from poking past this box's own
+								// rounded corners, since clip-path polygons don't know about
+								// border-radius.
+								//
+								// The button itself never carries an occupant's color or a hover
+								// filter — see the overlay span(s) below instead. An occupied cell
+								// is always at least one color region (the whole cell for a plain
+								// night, one or two triangles for a check-in/check-out day), and
+								// each region highlights independently; a filter on the button
+								// would cascade to every region (and the day number) at once,
+								// which is exactly the "both triangles light up together" bug this
+								// replaced.
+								"relative flex aspect-square items-center justify-center overflow-hidden rounded-md border text-sm transition-colors",
 								!inMonth ? "invisible" : "",
-								reservation
-									? `${STATUS_CELL_STYLE[reservation.status]} cursor-pointer`
-									: platform
-										? `${platform.cellStyle} cursor-pointer`
-										: manualBlock
-											? `${MANUAL_CELL_STYLE} cursor-pointer`
-											: isSelected
-												? "border-brand-700 bg-brand-600 text-neutral-900 cursor-pointer"
-												: "cursor-pointer border-neutral-200 text-neutral-700 hover:border-brand-400 hover:bg-brand-50",
-								hoverKey && hoverKey === hoveredKey ? "brightness-90" : "",
+								isMiddleOccupied || hasSplit
+									? "border-neutral-300 cursor-pointer"
+									: isSelected
+										? "border-brand-700 bg-brand-600 text-neutral-900 cursor-pointer"
+										: "cursor-pointer border-neutral-200 text-neutral-700 hover:border-brand-400 hover:bg-brand-50",
 								isToday ? "ring-1 ring-inset ring-brand-500" : "",
 							].join(" ")}
 							onClick={() => {
@@ -283,34 +431,71 @@ export const BookingsCalendar = ({
 									window.open(platform.url, "_blank", "noopener,noreferrer");
 								} else if (manualBlock) {
 									setBlockPendingDelete(manualBlock);
+								} else if (departingReservation) {
+									onSelect(departingReservation.id);
+								} else if (departingPlatform) {
+									window.open(departingPlatform.url, "_blank", "noopener,noreferrer");
+								} else if (departingManualBlock) {
+									setBlockPendingDelete(departingManualBlock);
 								} else {
 									handleOpenDayClick(date);
 								}
 							}}
-							onMouseEnter={() => {
-								if (!hoverKey) return;
-								if (hoverClearTimeoutRef.current !== null) {
-									clearTimeout(hoverClearTimeoutRef.current);
-									hoverClearTimeoutRef.current = null;
-								}
-								setHoveredKey(hoverKey);
-							}}
-							onMouseLeave={() => {
-								if (!hoverKey) return;
-								const leftKey = hoverKey;
-								hoverClearTimeoutRef.current = setTimeout(() => {
-									setHoveredKey((current) => (current === leftKey ? null : current));
-								}, HOVER_CLEAR_DELAY_MS);
-							}}
 						>
-							<span className="leading-none">{date.date()}</span>
-							{isCheckIn && (
-								<span className="absolute inset-x-1.5 bottom-1.5 truncate text-center text-[9px] leading-tight">
-									{reservation
-										? reservation.guestName
-										: platform
-											? platform.label
-											: (manualBlock?.note ?? "Blocked")}
+							{/* A plain mid-stay night: one color, the whole cell. Its own
+							overlay (rather than the button's own background, as it used to
+							be) so hovering it can brighten just this region — same mechanism
+							as the two triangles below — without a filter on the button
+							cascading onto the day-number text too. Hover listeners live here,
+							not on the button, so a turnover day's two regions each answer to
+							the pointer independently (see hoverHandlersFor). */}
+							{isMiddleOccupied && occupiedInfo && (
+								<span
+									aria-hidden="true"
+									className={`absolute inset-0 ${occupiedInfo.cellStyle} ${isArrivingHovered ? "brightness-90" : ""}`}
+									{...hoverHandlersFor(arrivingHoverKey)}
+								/>
+							)}
+							{/* Departing half: the checkout side of the day, upper-left of
+							the "/" diagonal. Rendered whenever anything departs today —
+							standalone (rest of the cell stays blank/available, below) or
+							alongside an arriving half if something else checks in the same
+							day. This is the side that used to get no representation at all:
+							checkout is the exclusive end of [checkIn, checkOut), so on its
+							own day nothing ever marked it. */}
+							{departing && (
+								<span
+									aria-hidden="true"
+									className={`absolute inset-0 ${departing.cellStyle} ${isDepartingHovered ? "brightness-90" : ""}`}
+									style={{
+										clipPath: `polygon(0 0, calc(100% - ${SPLIT_GAP_PX}px) 0, 0 calc(100% - ${SPLIT_GAP_PX}px))`,
+									}}
+									{...hoverHandlersFor(departingHoverKey)}
+								/>
+							)}
+							{/* Arriving half: the check-in side, lower-right of the diagonal.
+							Rendered on every check-in day, standalone or paired with a
+							departing half above — previously this side always claimed the
+							*entire* cell instead of just its own half. */}
+							{arriving && (
+								<span
+									aria-hidden="true"
+									className={`absolute inset-0 ${arriving.cellStyle} ${isArrivingHovered ? "brightness-90" : ""}`}
+									style={{
+										clipPath: `polygon(100% ${SPLIT_GAP_PX}px, 100% 100%, ${SPLIT_GAP_PX}px 100%)`,
+									}}
+									{...hoverHandlersFor(arrivingHoverKey)}
+								/>
+							)}
+							{/* pointer-events-none on both: purely decorative text sitting
+							on top of the color region(s) above — without this, hovering
+							anywhere behind the day number or the guest-name label would hit
+							these instead and never reach the triangle/overlay underneath,
+							silently breaking the per-region hover they're layered on top of. */}
+							<span className="relative pointer-events-none leading-none">{date.date()}</span>
+							{isCheckIn && arriving && (
+								<span className="pointer-events-none absolute inset-x-1.5 bottom-1.5 truncate text-center text-[9px] leading-tight">
+									{arriving.label}
 								</span>
 							)}
 						</button>

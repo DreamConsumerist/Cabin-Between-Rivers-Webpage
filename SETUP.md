@@ -35,7 +35,7 @@ Reference: the full technical plan lives at
   (image only) before they can continue to payment. Stored privately in Netlify Blobs (a separate
   `id-photos` store from the public gallery), only ever viewable by an admin via `/admin` → Bookings.
 - ✅ iCal sync (Phase 5), both directions: **import** pulls Airbnb/Vrbo `.ics` URLs (set from the
-  `/admin` iCal tab) into `external_blocks`, on save, on demand ("Sync now"), and every 30 minutes
+  `/admin` iCal tab) into `external_blocks`, on save, on demand ("Sync now"), and every hour
   via `netlify/functions/ical-sync.mts`; **export** serves the site's own confirmed/held
   reservations as a `.ics` feed at `netlify/functions/calendar-export.mts`, gated by a secret token
   (`settings.export_token`, lazily generated the first time the iCal tab loads, rotatable via
@@ -80,6 +80,12 @@ Reference: the full technical plan lives at
   `Sentry.ErrorBoundary` in `src/App.tsx` catching a render-time exception instead of blanking the
   page. Replaces `settings.errorNotificationEmails`, which has been removed — see "Later phases"
   below.
+- ✅ Real local Postgres for `netlify dev` (`pnpm db:local`, `scripts/local-db.mjs`): `netlify dev`'s
+  built-in local database (PGlite) has almost no extensions compiled in, which permanently blocked any
+  migration needing one (e.g. `btree_gist`) — and netlify-cli has no config flag to redirect that
+  built-in feature elsewhere. `pnpm db:local` runs an actual local Postgres instead (via the
+  `embedded-postgres` npm package), which `db/client.ts`/`drizzle.config.ts` prefer via
+  `LOCAL_DATABASE_URL` whenever it's running. See "Develop locally" under Phase 2.
 
 ---
 
@@ -114,28 +120,42 @@ There are two databases: a **local** one (for development, started by `netlify d
 
 ### Develop locally (no deploy, no credits)
 
-1. Start the dev environment (leave running):
+`netlify dev`'s built-in local database is PGlite (Postgres compiled to WASM), which has almost no
+extensions compiled in — no `btree_gist`, `pg_trgm`, etc. Any migration needing one can never apply
+against it, and netlify-cli has no config flag to point that built-in feature at a different Postgres
+(it unconditionally spawns PGlite and overwrites the connection env var with its own on every `netlify
+dev` start). So instead of fighting that, `pnpm db:local` runs a real local Postgres in its place — via
+the `embedded-postgres` npm package (actual Postgres binaries, including the full extension set,
+fetched from the npm registry — the official installer is blocked in some sandboxed environments).
+`db/client.ts` and `drizzle.config.ts` prefer it (via `LOCAL_DATABASE_URL`, already set in `.env`)
+whenever it's running; `netlify dev`'s own PGlite instance still starts alongside it, just unused.
+
+1. Start the local Postgres (leave running — a background terminal, like `netlify dev` itself):
+   ```bash
+   pnpm db:local
+   ```
+   First run initializes the cluster; every run applies any pending migrations automatically
+   (`drizzle-kit migrate` against `LOCAL_DATABASE_URL` — see `scripts/local-db.mjs`).
+2. In a second terminal, start the dev server:
    ```bash
    netlify dev
    ```
-2. In a second terminal, apply the migration to the local database:
-   ```bash
-   netlify database migrations apply
-   ```
 3. Verify / inspect:
    ```bash
-   netlify db status                                # should show the migration as applied
-   netlify dev:exec -- pnpm db:studio               # browse tables/data
+   pnpm db:studio   # browse tables/data — reads LOCAL_DATABASE_URL via drizzle.config.ts
    ```
 
 ### Migration workflow (going forward)
 
-You do **not** run `drizzle-kit migrate` (that would fight Netlify's migration tracker). Instead:
 ```bash
-pnpm db:generate                    # after editing db/schema.ts -> new timestamped migration
-netlify database migrations apply   # apply to the local DB
+pnpm db:generate   # after editing db/schema.ts -> new timestamped migration
+pnpm db:local      # re-run (or restart, if already running) to apply it locally
 ```
-Netlify applies pending migrations to the **cloud** DB automatically on deploy.
+Locally this uses plain `drizzle-kit migrate` against the local Postgres above — safe here since it's
+a separate database with its own tracking table, not the one Netlify manages. Do **not** run
+`drizzle-kit migrate` against the **cloud** DB (`NETLIFY_DATABASE_URL`/`_UNPOOLED`) — that would fight
+Netlify's own migration tracker. Netlify applies pending migrations to the cloud DB automatically on
+deploy.
 
 ### Provision + claim the cloud database  *(at first deploy)*
 
@@ -146,33 +166,27 @@ The cloud DB doesn't exist until you deploy. When you're ready:
 
 ## Phase 3 — Booking core (test locally)
 
-With `netlify dev` running in one terminal, do the following in a second terminal.
+With `pnpm db:local` and `netlify dev` both running (see Phase 2), do the following in a third terminal.
 
-1. **Apply the new overlap-constraint migration** to the local DB:
+1. **Seed the settings row** (prices are in CENTS; e.g. $150.00/night, $75.00 cleaning, 2-night min):
    ```bash
-   netlify database migrations apply
+   pnpm exec drizzle-kit studio   # or any Postgres client pointed at LOCAL_DATABASE_URL
    ```
-   > This applies `..._booking_overlap_constraint` — a range-only daterange EXCLUDE constraint
-   > (uses Postgres's built-in GiST range operators; no extension required).
+   Insert a row into `settings` with `nightly_rate=15000, cleaning_fee=7500, min_nights=2`.
 
-2. **Seed the settings row** (prices are in CENTS; e.g. $150.00/night, $75.00 cleaning, 2-night min):
-   ```bash
-   netlify database connect --query "INSERT INTO settings (nightly_rate, cleaning_fee, min_nights) VALUES (15000, 7500, 2)"
-   ```
-
-3. **Test availability** (should return `{ "blocked": [] }` initially):
+2. **Test availability** (should return `{ "blocked": [] }` initially):
    ```powershell
    Invoke-RestMethod http://localhost:8888/api/check-availability
    ```
 
-4. **Create a booking** (PowerShell-friendly):
+3. **Create a booking** (PowerShell-friendly):
    ```powershell
    $body = @{ checkIn="2026-09-01"; checkOut="2026-09-04"; guestName="Test Guest"; guestEmail="test@example.com"; guests=2 } | ConvertTo-Json
    Invoke-RestMethod -Method Post -Uri http://localhost:8888/api/create-booking -ContentType "application/json" -Body $body
    ```
    Expect a `reservationId`, `amountTotal` (52500 = 3 × 15000 + 7500), and `holdExpiresAt`.
 
-5. **Prove double-booking is blocked** — run the same command again (overlapping dates). Expect an
+4. **Prove double-booking is blocked** — run the same command again (overlapping dates). Expect an
    HTTP 409 "Those dates were just taken" (the EXCLUDE constraint rejecting the overlap). Re-running
    `check-availability` should now show your first booking as a blocked range.
 
@@ -263,10 +277,8 @@ or in production); only display metadata (caption, dimensions, order) lives in P
    netlify env:set ADMIN_SESSION_SECRET "$(openssl rand -hex 32)"
    ```
    > Restart `netlify dev` after setting new env vars so it picks them up.
-2. **Apply the new migration** (adds the `gallery_photos` table):
-   ```bash
-   netlify database migrations apply
-   ```
+2. **Apply the new migration** (adds the `gallery_photos` table) — `pnpm db:generate` already ran
+   for this one; just re-run (or restart) `pnpm db:local` to apply it to the local DB (see Phase 2).
 3. **Sign in**: open `http://localhost:8888/admin`, enter the password you set. You should land on
    the dashboard (Gallery / Pricing tabs) instead of the login form.
 4. **Upload the initial photos**: the six placeholder images that used to be hardcoded in
@@ -289,13 +301,10 @@ Airbnb/Vrbo can do the same in reverse. A conflict is flagged (and optionally em
 two sides still disagree.
 
 1. **Apply pending migrations** (adds `double_booking_conflicts` and `settings.export_token`, among
-   others accumulated since Phase 3):
-   ```bash
-   netlify database migrations apply
-   ```
+   others accumulated since Phase 3) — re-run (or restart) `pnpm db:local` to apply them (see Phase 2).
 2. **Import**: `/admin` → iCal tab → paste an Airbnb and/or Vrbo calendar URL (each platform's
    listing → Calendar → Sync calendars → Export). Save, then click **Sync now**. Successful/failed
-   pulls per source show inline. It also runs automatically on save and every 30 minutes
+   pulls per source show inline. It also runs automatically on save and every hour
    (`netlify/functions/ical-sync.mts`).
 3. **Export**: same tab, further down — an **Export feed URL** is shown (generated automatically the
    first time this tab loads). Copy it into Airbnb's and Vrbo's calendar **import** field (the

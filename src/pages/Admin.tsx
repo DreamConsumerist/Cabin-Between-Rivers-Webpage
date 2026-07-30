@@ -99,7 +99,7 @@ export const Admin = (): FunctionComponent => {
 					</Button>
 				</div>
 
-				<div className="flex gap-2 border-b border-neutral-200">
+				<div className="flex gap-2 overflow-x-auto border-b border-neutral-200">
 					{(
 						[
 							"bookings",
@@ -114,7 +114,7 @@ export const Admin = (): FunctionComponent => {
 						<button
 							key={t}
 							type="button"
-							className={`px-4 py-2 text-sm font-medium ${
+							className={`shrink-0 px-4 py-2 text-sm font-medium ${
 								tab === t
 									? "border-b-2 border-brand-600 text-brand-700"
 									: "text-neutral-500 hover:text-neutral-700"
