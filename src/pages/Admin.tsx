@@ -5,10 +5,9 @@ import { BookingsList } from "../features/admin/BookingsList";
 import { ConfigurationsManager } from "../features/admin/ConfigurationsManager";
 import { ConflictsList } from "../features/admin/ConflictsList";
 import { GalleryManager } from "../features/admin/GalleryManager";
-import { GuestEmailsForm } from "../features/admin/GuestEmailsForm";
 import { IcalForm } from "../features/admin/IcalForm";
 import { LoginForm } from "../features/admin/LoginForm";
-import { NotificationsForm } from "../features/admin/NotificationsForm";
+import { MailTab } from "../features/admin/MailTab";
 import { TermsForm } from "../features/admin/TermsForm";
 import { useAdminLogout, useAdminMe, useConflicts } from "../features/admin/hooks";
 
@@ -17,20 +16,18 @@ type Tab =
 	| "gallery"
 	| "configurations"
 	| "ical"
-	| "notifications"
+	| "mail"
 	| "conflicts"
-	| "terms"
-	| "guestEmails";
+	| "terms";
 
 const TAB_LABEL: Record<Tab, string> = {
 	bookings: "Bookings",
 	gallery: "Gallery",
 	configurations: "Configurations",
 	ical: "iCal",
-	notifications: "Notifications",
+	mail: "Mail",
 	conflicts: "Conflicts",
 	terms: "Terms",
-	guestEmails: "Guest Emails",
 };
 
 // Only ever set by admin-id-photo.mts's login redirect, to a same-origin
@@ -109,10 +106,9 @@ export const Admin = (): FunctionComponent => {
 							"gallery",
 							"configurations",
 							"ical",
-							"notifications",
+							"mail",
 							"conflicts",
 							"terms",
-							"guestEmails",
 						] as const
 					).map((t) => (
 						<button
@@ -141,10 +137,9 @@ export const Admin = (): FunctionComponent => {
 				{tab === "gallery" && <GalleryManager />}
 				{tab === "configurations" && <ConfigurationsManager />}
 				{tab === "ical" && <IcalForm />}
-				{tab === "notifications" && <NotificationsForm />}
+				{tab === "mail" && <MailTab />}
 				{tab === "conflicts" && <ConflictsList />}
 				{tab === "terms" && <TermsForm />}
-				{tab === "guestEmails" && <GuestEmailsForm />}
 			</div>
 		</main>
 	);
