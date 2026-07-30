@@ -5,6 +5,7 @@ import { BookingsList } from "../features/admin/BookingsList";
 import { ConfigurationsManager } from "../features/admin/ConfigurationsManager";
 import { ConflictsList } from "../features/admin/ConflictsList";
 import { GalleryManager } from "../features/admin/GalleryManager";
+import { GuestEmailsForm } from "../features/admin/GuestEmailsForm";
 import { IcalForm } from "../features/admin/IcalForm";
 import { LoginForm } from "../features/admin/LoginForm";
 import { NotificationsForm } from "../features/admin/NotificationsForm";
@@ -18,7 +19,8 @@ type Tab =
 	| "ical"
 	| "notifications"
 	| "conflicts"
-	| "terms";
+	| "terms"
+	| "guestEmails";
 
 const TAB_LABEL: Record<Tab, string> = {
 	bookings: "Bookings",
@@ -28,6 +30,7 @@ const TAB_LABEL: Record<Tab, string> = {
 	notifications: "Notifications",
 	conflicts: "Conflicts",
 	terms: "Terms",
+	guestEmails: "Guest Emails",
 };
 
 // Only ever set by admin-id-photo.mts's login redirect, to a same-origin
@@ -109,6 +112,7 @@ export const Admin = (): FunctionComponent => {
 							"notifications",
 							"conflicts",
 							"terms",
+							"guestEmails",
 						] as const
 					).map((t) => (
 						<button
@@ -140,6 +144,7 @@ export const Admin = (): FunctionComponent => {
 				{tab === "notifications" && <NotificationsForm />}
 				{tab === "conflicts" && <ConflictsList />}
 				{tab === "terms" && <TermsForm />}
+				{tab === "guestEmails" && <GuestEmailsForm />}
 			</div>
 		</main>
 	);

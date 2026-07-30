@@ -225,6 +225,25 @@ export const updateAdminTerms = (
 		body: JSON.stringify({ termsContent }),
 	});
 
+export type GuestEmailSettings = {
+	checkInInstructions: string;
+	checkOutInstructions: string;
+	checkInReminderHour: number;
+	checkOutReminderHour: number;
+};
+
+export const fetchAdminGuestEmails = (): Promise<GuestEmailSettings> =>
+	jsonFetch("/api/admin-guest-emails");
+
+export const updateAdminGuestEmails = (
+	input: GuestEmailSettings
+): Promise<GuestEmailSettings> =>
+	jsonFetch("/api/admin-guest-emails", {
+		method: "PUT",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
 export type PriceOverride = {
 	id: number;
 	configurationId: number;

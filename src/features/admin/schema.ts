@@ -59,6 +59,21 @@ export const termsFormSchema = z.object({
 
 export type TermsFormValues = z.infer<typeof termsFormSchema>;
 
+// AKST wall-clock hour (see db/schema.ts's checkInReminderHour/
+// checkOutReminderHour comment and SETUP.md's timezone convention) — entered
+// here as a plain 0-23 hour, same as the server-side settings columns.
+const reminderHour = z.coerce.number().int().min(0, "Must be 0-23").max(23, "Must be 0-23");
+
+export const guestEmailsFormSchema = z.object({
+	checkInInstructions: z.string().trim().min(1, "Check-in instructions are required"),
+	checkOutInstructions: z.string().trim().min(1, "Check-out instructions are required"),
+	checkInReminderHour: reminderHour,
+	checkOutReminderHour: reminderHour,
+});
+
+export type GuestEmailsFormInput = z.input<typeof guestEmailsFormSchema>;
+export type GuestEmailsFormValues = z.output<typeof guestEmailsFormSchema>;
+
 // checkIn/checkOut come from calendar selection state, not a typed form field
 // (same as the guest booking flow in Booking.tsx).
 export const priceOverrideFormSchema = z.object({

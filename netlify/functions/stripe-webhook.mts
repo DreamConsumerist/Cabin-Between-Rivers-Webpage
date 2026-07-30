@@ -2,10 +2,15 @@ import type Stripe from "stripe";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "../../db/client";
 import { processedWebhookEvents, reservations } from "../../db/schema";
-import { getReservationById, isOverlapError } from "../../lib/availability";
+import { getReservationById, getSettings, isOverlapError } from "../../lib/availability";
 import { flagDoubleBooking } from "../../lib/conflicts";
 import { error, json, withErrorHandling } from "../../lib/http";
-import { notifyBookingConfirmed, sendBookingConfirmationEmail } from "../../lib/mailer";
+import {
+	notifyBookingConfirmed,
+	scheduleCheckInReminder,
+	scheduleCheckOutReminder,
+	sendBookingConfirmationEmail,
+} from "../../lib/mailer";
 import { reportCritical } from "../../lib/sentry";
 import { getStripe, getWebhookSecret } from "../../lib/stripe";
 
@@ -106,6 +111,33 @@ export default withErrorHandling("stripe-webhook", async (req, _context) => {
 					};
 					await notifyBookingConfirmed(details);
 					await sendBookingConfirmationEmail(details);
+
+					// Best-effort: schedule the arrival/checkout reminders now, while
+					// check-in is soon enough to be within Resend's scheduling window
+					// (see lib/mailer.ts). A far-out booking simply gets skipped here
+					// and picked up later by schedule-guest-emails.mts's catch-all
+					// sweep — never worth failing an already-confirmed payment over.
+					try {
+						const settings = await getSettings();
+						const [checkInEmailId, checkOutEmailId] = await Promise.all([
+							scheduleCheckInReminder(reservation, settings),
+							scheduleCheckOutReminder(reservation, settings),
+						]);
+						if (checkInEmailId || checkOutEmailId) {
+							await db
+								.update(reservations)
+								.set({
+									...(checkInEmailId ? { checkInEmailId } : {}),
+									...(checkOutEmailId ? { checkOutEmailId } : {}),
+								})
+								.where(eq(reservations.id, reservation.id));
+						}
+					} catch (e) {
+						console.error(
+							`stripe-webhook: failed to schedule guest reminder emails for reservation ${reservation.id}`,
+							e
+						);
+					}
 				}
 			} catch (e) {
 				if (isOverlapError(e)) {

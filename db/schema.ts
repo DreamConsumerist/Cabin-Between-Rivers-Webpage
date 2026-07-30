@@ -100,6 +100,15 @@ export const reservations = pgTable("reservations", {
 	// before this feature shipped simply have no self-cancel link (their
 	// confirmation email never included one either); every new row gets one.
 	cancellationToken: varchar("cancellation_token", { length: 64 }),
+	// Resend email ids for the scheduled arrival-instructions / pre-checkout
+	// reminders (see lib/mailer.ts's scheduleCheckInReminder/
+	// scheduleCheckOutReminder) — null until scheduled. Doubles as the
+	// "already scheduled, skip" marker for both the Stripe webhook's immediate
+	// scheduling attempt and netlify/functions/schedule-guest-emails.mts's
+	// catch-all sweep for reservations booked too far out to schedule at
+	// confirmation time (Resend's scheduled_at caps out 30 days ahead).
+	checkInEmailId: varchar("check_in_email_id", { length: 255 }),
+	checkOutEmailId: varchar("check_out_email_id", { length: 255 }),
 	createdAt: timestamp("created_at", { withTimezone: true })
 		.notNull()
 		.defaultNow(),
@@ -209,6 +218,23 @@ export const settings = pgTable("settings", {
 	// calendar-export.mts). Null until an admin first opens the iCal tab
 	// (lazy-generated) or explicitly regenerates it.
 	exportToken: varchar("export_token", { length: 64 }),
+	// Guest-facing reminder email content, admin-edited (see netlify/functions/
+	// admin-guest-emails.mts) — same "plain text, falls back to a default when
+	// null" convention as termsContent above. checkInInstructions covers
+	// arrival details (door code, wifi, directions); checkOutInstructions
+	// covers departure (checkout time, house-closing steps). See
+	// lib/guestEmails.ts for the defaults and lib/mailer.ts for where these
+	// get sent.
+	checkInInstructions: text("check_in_instructions"),
+	checkOutInstructions: text("check_out_instructions"),
+	// AKST wall-clock hour (0-23) each reminder is scheduled to send, falling
+	// back to 9 (check-in) / 8 (check-out) when null. Per this project's
+	// timezone convention (see SETUP.md): internal time handling stays in
+	// UTC everywhere else, but anything an admin sets or views — like this —
+	// is AKST. Converted to UTC only at the point lib/mailer.ts computes
+	// Resend's scheduled_at.
+	checkInReminderHour: integer("check_in_reminder_hour"),
+	checkOutReminderHour: integer("check_out_reminder_hour"),
 });
 
 // Seasonal price overrides, admin-managed from /admin. `nightlyRate` (cents)

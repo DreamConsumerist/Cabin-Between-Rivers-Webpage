@@ -16,6 +16,7 @@ import {
 	deleteManualBlock,
 	deletePriceOverride,
 	fetchAdminBookings,
+	fetchAdminGuestEmails,
 	fetchAdminIcal,
 	fetchAdminMe,
 	fetchAdminNotifications,
@@ -28,6 +29,7 @@ import {
 	reopenConflict,
 	resolveConflict,
 	triggerAdminIcalSync,
+	updateAdminGuestEmails,
 	updateAdminIcal,
 	updateAdminNotifications,
 	updateAdminSettings,
@@ -40,6 +42,7 @@ import {
 	type BookingConfiguration,
 	type BookingConfigurationInput,
 	type Conflict,
+	type GuestEmailSettings,
 	type IcalSettings,
 	type IcalSyncSummary,
 	type IcalUrls,
@@ -183,6 +186,22 @@ export const useUpdateAdminTerms = (): UseMutationResult<
 		mutationFn: (termsContent: string) => updateAdminTerms(termsContent),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: ["admin-terms"] }),
+	});
+};
+
+export const useAdminGuestEmails = (): UseQueryResult<GuestEmailSettings, Error> =>
+	useQuery({ queryKey: ["admin-guest-emails"], queryFn: fetchAdminGuestEmails });
+
+export const useUpdateAdminGuestEmails = (): UseMutationResult<
+	GuestEmailSettings,
+	Error,
+	GuestEmailSettings
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: GuestEmailSettings) => updateAdminGuestEmails(input),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: ["admin-guest-emails"] }),
 	});
 };
 
