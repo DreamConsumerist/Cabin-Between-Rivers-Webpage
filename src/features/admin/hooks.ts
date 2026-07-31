@@ -217,7 +217,7 @@ const PRICE_OVERRIDES_QUERY_KEY = ["price-overrides"];
 // configuration's overrides at a time.
 export const usePriceOverrides = (
 	configurationId: number
-): UseQueryResult<{ overrides: Array<PriceOverride> }, Error> =>
+): UseQueryResult<{ overrides: Array<PriceOverride>; allInstances: Array<PriceOverride> }, Error> =>
 	useQuery({
 		queryKey: [...PRICE_OVERRIDES_QUERY_KEY, configurationId],
 		queryFn: () => fetchPriceOverrides(configurationId),

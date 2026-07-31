@@ -17,6 +17,13 @@ export type PriceOverrideFields = {
 
 const todayIsoDate = (): string => dayjs().format("YYYY-MM-DD");
 
+// How far ahead a recurring series' instances are kept materialized. Chosen
+// as a deliberately generous "early buy-in" horizon: it costs one extra row
+// per series-year (negligible), but means an admin (or the guest-facing
+// pricing lookup, which needs a real row per year — see listPriceOverrides
+// below) never has to wait on the Jan 1 cron to see coverage far out.
+export const RECURRING_SERIES_HORIZON_YEARS = 10;
+
 // Pure date-math for generating a recurring series' next instance — no `db`
 // dependency, so it's unit-testable without mocking the database.
 export const shiftYears = (
@@ -69,16 +76,18 @@ const pickCurrentInstance = (
 // through unchanged, but a recurring series collapses down to just its
 // current/next-upcoming instance instead of listing every auto-generated
 // future year (the seasonal-pricing panel would otherwise fill up with e.g.
-// 2026, 2027, 2028, 2029 rows for what is, from the admin's point of view,
-// one rule). Editing or deleting whichever instance is shown still acts on
-// the whole series — updatePriceOverrideAndPropagate/endRecurringSeries
-// resolve the series from any one of its rows — so collapsing the list here
-// doesn't change what an edit/delete affects, only what's displayed.
-export const listPriceOverridesForAdmin = async (
-	configurationId: number
-): Promise<Array<PriceOverrideRow>> => {
-	const rows = await listPriceOverrides(configurationId);
-
+// 2026, 2027, ..., 2036 rows for what is, from the admin's point of view, one
+// rule). Editing or deleting whichever instance is shown still acts on the
+// whole series — updatePriceOverrideAndPropagate/endRecurringSeries resolve
+// the series from any one of its rows — so collapsing the list here doesn't
+// change what an edit/delete affects, only what's displayed. Exported
+// separately from listPriceOverridesForAdmin so callers that already have the
+// full row list (e.g. the admin API route, which also needs the uncollapsed
+// rows for calendar tinting — see PriceOverrideCalendar) don't have to query
+// twice.
+export const collapsePriceOverridesForAdmin = (
+	rows: Array<PriceOverrideRow>
+): Array<PriceOverrideRow> => {
 	const seriesInstances = new Map<number, Array<PriceOverrideRow>>();
 	const oneOff: Array<PriceOverrideRow> = [];
 	for (const row of rows) {
@@ -98,6 +107,11 @@ export const listPriceOverridesForAdmin = async (
 	];
 	return collapsed.sort((a, b) => (a.checkIn < b.checkIn ? -1 : a.checkIn > b.checkIn ? 1 : 0));
 };
+
+export const listPriceOverridesForAdmin = async (
+	configurationId: number
+): Promise<Array<PriceOverrideRow>> =>
+	collapsePriceOverridesForAdmin(await listPriceOverrides(configurationId));
 
 export const getPriceOverrideById = async (id: number): Promise<PriceOverrideRow | null> => {
 	const rows = await db.select().from(priceOverrides).where(eq(priceOverrides.id, id)).limit(1);
@@ -124,13 +138,14 @@ export const createPriceOverride = async (fields: PriceOverrideFields): Promise<
 };
 
 // Creates a recurring series: the root row the admin asked for, plus best-
-// effort copies at +1 and +2 years so the series has visible coverage
-// immediately instead of waiting for the next Jan 1
-// extend-recurring-price-overrides run. Both years are generated explicitly
-// (not just +2) — extendRecurringSeries only ever extends forward from
-// whatever the latest existing instance already is, so if +1 were skipped
-// here, no later cron run would ever go back and fill it in; the gap would
-// be permanent, not just until the next Jan 1.
+// effort copies at +1 through +RECURRING_SERIES_HORIZON_YEARS years so the
+// series has visible coverage immediately instead of waiting for the next
+// Jan 1 extend-recurring-price-overrides run. Every year in the horizon is
+// generated explicitly here (not left to the cron) — extendRecurringSeries
+// only ever extends forward from whatever the latest existing instance
+// already is, so if an early year were skipped here, no later cron run would
+// ever go back and fill it in; the gap would be permanent, not just until the
+// next Jan 1.
 // Each insert is deliberately NOT wrapped in the same transaction as the root
 // (or as each other) — if one collides with an unrelated override already on
 // the books (isPriceOverrideOverlapError) we skip just that year rather than
@@ -146,7 +161,7 @@ export const createRecurringPriceOverride = async (
 		.returning();
 	const root = rootRows[0]!;
 
-	for (const years of [1, 2]) {
+	for (let years = 1; years <= RECURRING_SERIES_HORIZON_YEARS; years++) {
 		const shifted = shiftYears(fields.checkIn, fields.checkOut, years);
 		try {
 			await db.insert(priceOverrides).values({
@@ -251,21 +266,27 @@ export const isPriceOverrideOverlapError = (e: unknown): boolean =>
 
 // The Jan 1 scheduled job (netlify/functions/extend-recurring-price-
 // overrides.mts): for every active recurring series, rolls its coverage
-// forward so the furthest instance is never less than 2 years ahead of today.
-// Generates from the series' latest existing instance (not its root), so a
-// rate edited via updatePriceOverrideAndPropagate — which only reaches
-// existing checkIn >= today rows — still carries forward into rows that
-// don't exist yet at edit time. A blocked series (its next date collides
-// with an unrelated override) is skipped with a logged error rather than
-// aborting the whole run.
+// forward so the furthest instance is never less than
+// RECURRING_SERIES_HORIZON_YEARS ahead of today. Generates from the series'
+// latest existing instance (not its root), so a rate edited via
+// updatePriceOverrideAndPropagate — which only reaches existing
+// checkIn >= today rows — still carries forward into rows that don't exist
+// yet at edit time. A blocked series (its next date collides with an
+// unrelated override) is skipped with a logged error rather than aborting the
+// whole run.
 export const extendRecurringSeries = async (): Promise<void> => {
 	const roots = await db
 		.select()
 		.from(priceOverrides)
 		.where(and(eq(priceOverrides.recurring, true), isNull(priceOverrides.seriesParentId)));
 
-	const targetYear = dayjs().year() + 2;
-	const MAX_CATCH_UP_YEARS = 5;
+	const targetYear = dayjs().year() + RECURRING_SERIES_HORIZON_YEARS;
+	// Steady state only ever needs to insert one year per run (the horizon
+	// slides forward by exactly one year each Jan 1), but a series that's
+	// fallen behind — e.g. right after RECURRING_SERIES_HORIZON_YEARS was
+	// raised from 2 to 10 — needs to catch up its whole remaining gap in a
+	// single run, up to the full horizon.
+	const MAX_CATCH_UP_YEARS = RECURRING_SERIES_HORIZON_YEARS + 2;
 
 	for (const root of roots) {
 		const siblings = await db

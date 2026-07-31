@@ -266,7 +266,13 @@ export type PriceOverrideInput = {
 export const fetchPriceOverrides = (
 	configurationId: number
 ): Promise<{
+	// One row per series (collapsed to its current/next-upcoming instance) —
+	// for the editable list.
 	overrides: Array<PriceOverride>;
+	// Every materialized row, all years of every recurring series — for the
+	// calendar, which needs the correct instance no matter which future
+	// month it's paged to.
+	allInstances: Array<PriceOverride>;
 }> => jsonFetch(`/api/admin-price-overrides?configurationId=${configurationId}`);
 
 export const createPriceOverride = (

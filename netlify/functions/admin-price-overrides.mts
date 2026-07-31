@@ -4,13 +4,14 @@ import { error, json, parseJsonBody, withErrorHandling } from "../../lib/http";
 import { requireAdmin } from "../../lib/adminAuth";
 import { isoDateSchema } from "../../lib/booking";
 import {
+	collapsePriceOverridesForAdmin,
 	createPriceOverride,
 	createRecurringPriceOverride,
 	deletePriceOverride,
 	endRecurringSeries,
 	getPriceOverrideById,
 	isPriceOverrideOverlapError,
-	listPriceOverridesForAdmin,
+	listPriceOverrides,
 	updatePriceOverride,
 	updatePriceOverrideAndPropagate,
 } from "../../lib/priceOverrides";
@@ -114,7 +115,13 @@ export default withErrorHandling("admin-price-overrides", async (req, _context) 
 				if (!Number.isInteger(configurationId) || configurationId <= 0) {
 					return error("A valid configurationId is required");
 				}
-				return json({ overrides: await listPriceOverridesForAdmin(configurationId) });
+				// allInstances is every materialized row (all years of every
+				// recurring series) — the PriceOverrideCalendar needs it to tint
+				// dates correctly no matter which future month it's paged to.
+				// overrides is the same rows collapsed to one row per series, for
+				// the editable list below the calendar.
+				const allInstances = await listPriceOverrides(configurationId);
+				return json({ overrides: collapsePriceOverridesForAdmin(allInstances), allInstances });
 			}
 			case "POST":
 				return await handleCreate(req);

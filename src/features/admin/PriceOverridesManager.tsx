@@ -79,7 +79,7 @@ const NewOverrideForm = ({
 			<TextField label="Label (optional)" {...register("label")} error={errors.label?.message} />
 			<label className="flex items-center gap-2 text-sm text-neutral-700">
 				<input type="checkbox" {...register("recurring")} />
-				Recurring (auto-renews ~2 years ahead every January)
+				Recurring (auto-renews ~10 years ahead every January)
 			</label>
 			<Button disabled={create.isPending} type="submit">
 				{create.isPending ? "Saving…" : "Save override"}
@@ -195,6 +195,7 @@ export const PriceOverridesManager = ({
 	const { data, isPending, error } = usePriceOverrides(configurationId);
 	const [selection, setSelection] = useState<DateSelection>({ checkIn: null, checkOut: null });
 	const overrides = data?.overrides ?? [];
+	const allInstances = data?.allInstances ?? [];
 
 	return (
 		<div className="flex flex-col gap-6">
@@ -202,7 +203,7 @@ export const PriceOverridesManager = ({
 				<p className="mb-4 text-sm text-neutral-500">
 					Select a date range to set a nightly rate for that range, overriding the default nightly rate.
 				</p>
-				<PriceOverrideCalendar overrides={overrides} selection={selection} onChange={setSelection} />
+				<PriceOverrideCalendar overrides={allInstances} selection={selection} onChange={setSelection} />
 			</div>
 
 			{selection.checkIn && selection.checkOut ? (
