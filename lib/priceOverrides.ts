@@ -28,12 +28,14 @@ export const shiftYears = (
 	checkOut: dayjs(checkOut).add(years, "year").format("YYYY-MM-DD"),
 });
 
-// All overrides for one configuration, earliest check-in first — backs the
-// admin Configurations tab's seasonal-pricing manager and check-availability's
-// guest-facing override list. Scoped per-configuration (unlike blocking
-// tables — see bookingConfigurations in db/schema.ts): "Whole Cabin" and
-// "Downstairs Only" can each have their own holiday pricing for the same
-// dates.
+// All overrides for one configuration, earliest check-in first — backs
+// check-availability's guest-facing override list, which genuinely needs
+// every future instance of a recurring series (a guest browsing a date two
+// years out still needs that year's clone to price correctly). Scoped
+// per-configuration (unlike blocking tables — see bookingConfigurations in
+// db/schema.ts): "Whole Cabin" and "Downstairs Only" can each have their own
+// holiday pricing for the same dates. For the admin-facing list, see
+// listPriceOverridesForAdmin below instead.
 export const listPriceOverrides = async (
 	configurationId: number
 ): Promise<Array<PriceOverrideRow>> =>
@@ -42,6 +44,60 @@ export const listPriceOverrides = async (
 		.from(priceOverrides)
 		.where(eq(priceOverrides.configurationId, configurationId))
 		.orderBy(asc(priceOverrides.checkIn));
+
+// Of one recurring series' instances, the one to show as "the" row for that
+// series: whichever instance is active today, or failing that the soonest
+// upcoming one, or — only if every instance has already lapsed, which
+// shouldn't happen for a series the annual cron is still extending — the
+// most recent past one, so a series never vanishes from the list outright.
+const pickCurrentInstance = (
+	instances: Array<PriceOverrideRow>
+): PriceOverrideRow => {
+	const today = todayIsoDate();
+	const active = instances.find((row) => row.checkIn <= today && today < row.checkOut);
+	if (active) return active;
+
+	const upcoming = instances
+		.filter((row) => row.checkIn >= today)
+		.sort((a, b) => (a.checkIn < b.checkIn ? -1 : 1))[0];
+	if (upcoming) return upcoming;
+
+	return instances.reduce((latest, row) => (row.checkIn > latest.checkIn ? row : latest));
+};
+
+// Admin-facing counterpart to listPriceOverrides: one-off overrides pass
+// through unchanged, but a recurring series collapses down to just its
+// current/next-upcoming instance instead of listing every auto-generated
+// future year (the seasonal-pricing panel would otherwise fill up with e.g.
+// 2026, 2027, 2028, 2029 rows for what is, from the admin's point of view,
+// one rule). Editing or deleting whichever instance is shown still acts on
+// the whole series — updatePriceOverrideAndPropagate/endRecurringSeries
+// resolve the series from any one of its rows — so collapsing the list here
+// doesn't change what an edit/delete affects, only what's displayed.
+export const listPriceOverridesForAdmin = async (
+	configurationId: number
+): Promise<Array<PriceOverrideRow>> => {
+	const rows = await listPriceOverrides(configurationId);
+
+	const seriesInstances = new Map<number, Array<PriceOverrideRow>>();
+	const oneOff: Array<PriceOverrideRow> = [];
+	for (const row of rows) {
+		if (!row.recurring) {
+			oneOff.push(row);
+			continue;
+		}
+		const rootId = row.seriesParentId ?? row.id;
+		const group = seriesInstances.get(rootId);
+		if (group) group.push(row);
+		else seriesInstances.set(rootId, [row]);
+	}
+
+	const collapsed = [
+		...oneOff,
+		...Array.from(seriesInstances.values(), pickCurrentInstance),
+	];
+	return collapsed.sort((a, b) => (a.checkIn < b.checkIn ? -1 : a.checkIn > b.checkIn ? 1 : 0));
+};
 
 export const getPriceOverrideById = async (id: number): Promise<PriceOverrideRow | null> => {
 	const rows = await db.select().from(priceOverrides).where(eq(priceOverrides.id, id)).limit(1);
@@ -67,15 +123,20 @@ export const createPriceOverride = async (fields: PriceOverrideFields): Promise<
 	return rows[0]!;
 };
 
-// Creates a recurring series: the root row the admin asked for, plus a best-
-// effort copy 2 years out so the series has visible coverage immediately
-// instead of waiting for the next Jan 1 extend-recurring-price-overrides run.
-// The 2-years-out insert is deliberately NOT wrapped in the same transaction
-// as the root insert — if it collides with an unrelated override already on
-// the books (isPriceOverrideOverlapError) we skip it rather than fail the
-// root creation the admin is actually waiting on; a Postgres transaction
-// can't recover from a failed statement without a savepoint, which nothing
-// else in this codebase uses.
+// Creates a recurring series: the root row the admin asked for, plus best-
+// effort copies at +1 and +2 years so the series has visible coverage
+// immediately instead of waiting for the next Jan 1
+// extend-recurring-price-overrides run. Both years are generated explicitly
+// (not just +2) — extendRecurringSeries only ever extends forward from
+// whatever the latest existing instance already is, so if +1 were skipped
+// here, no later cron run would ever go back and fill it in; the gap would
+// be permanent, not just until the next Jan 1.
+// Each insert is deliberately NOT wrapped in the same transaction as the root
+// (or as each other) — if one collides with an unrelated override already on
+// the books (isPriceOverrideOverlapError) we skip just that year rather than
+// fail the root creation the admin is actually waiting on; a Postgres
+// transaction can't recover from a failed statement without a savepoint,
+// which nothing else in this codebase uses.
 export const createRecurringPriceOverride = async (
 	fields: PriceOverrideFields
 ): Promise<PriceOverrideRow> => {
@@ -85,22 +146,24 @@ export const createRecurringPriceOverride = async (
 		.returning();
 	const root = rootRows[0]!;
 
-	const shifted = shiftYears(fields.checkIn, fields.checkOut, 2);
-	try {
-		await db.insert(priceOverrides).values({
-			configurationId: fields.configurationId,
-			checkIn: shifted.checkIn,
-			checkOut: shifted.checkOut,
-			nightlyRate: fields.nightlyRate,
-			label: fields.label,
-			recurring: true,
-			seriesParentId: root.id,
-		});
-	} catch (e) {
-		if (!isPriceOverrideOverlapError(e)) throw e;
-		console.error(
-			`createRecurringPriceOverride: series ${root.id}'s +2-year instance (${shifted.checkIn}) overlaps an existing override, skipping`
-		);
+	for (const years of [1, 2]) {
+		const shifted = shiftYears(fields.checkIn, fields.checkOut, years);
+		try {
+			await db.insert(priceOverrides).values({
+				configurationId: fields.configurationId,
+				checkIn: shifted.checkIn,
+				checkOut: shifted.checkOut,
+				nightlyRate: fields.nightlyRate,
+				label: fields.label,
+				recurring: true,
+				seriesParentId: root.id,
+			});
+		} catch (e) {
+			if (!isPriceOverrideOverlapError(e)) throw e;
+			console.error(
+				`createRecurringPriceOverride: series ${root.id}'s +${years}-year instance (${shifted.checkIn}) overlaps an existing override, skipping`
+			);
+		}
 	}
 
 	return root;

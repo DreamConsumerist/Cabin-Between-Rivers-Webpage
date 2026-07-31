@@ -10,9 +10,11 @@ import {
 	adminLogin,
 	adminLogout,
 	createBookingConfiguration,
+	createDiscountCode,
 	createManualBlock,
 	createPriceOverride,
 	deleteBookingConfiguration,
+	deleteDiscountCode,
 	deleteManualBlock,
 	deletePriceOverride,
 	fetchAdminBookings,
@@ -24,6 +26,7 @@ import {
 	fetchAdminTerms,
 	fetchBookingConfigurations,
 	fetchConflicts,
+	fetchDiscountCodes,
 	fetchPriceOverrides,
 	regenerateExportToken,
 	reopenConflict,
@@ -42,6 +45,8 @@ import {
 	type BookingConfiguration,
 	type BookingConfigurationInput,
 	type Conflict,
+	type DiscountCode,
+	type DiscountCodeInput,
 	type GuestEmailSettings,
 	type IcalSettings,
 	type IcalSyncSummary,
@@ -306,6 +311,43 @@ export const useDeleteBookingConfiguration = (): UseMutationResult<
 		mutationFn: (id: number) => deleteBookingConfiguration(id),
 		onSuccess: () =>
 			queryClient.invalidateQueries({ queryKey: BOOKING_CONFIGURATIONS_QUERY_KEY }),
+	});
+};
+
+const DISCOUNT_CODES_QUERY_KEY = ["discount-codes"];
+
+export const useDiscountCodes = (): UseQueryResult<
+	{ discountCodes: Array<DiscountCode> },
+	Error
+> =>
+	useQuery({
+		queryKey: DISCOUNT_CODES_QUERY_KEY,
+		queryFn: fetchDiscountCodes,
+	});
+
+export const useCreateDiscountCode = (): UseMutationResult<
+	{ discountCode: DiscountCode },
+	Error,
+	DiscountCodeInput
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (input: DiscountCodeInput) => createDiscountCode(input),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: DISCOUNT_CODES_QUERY_KEY }),
+	});
+};
+
+export const useDeleteDiscountCode = (): UseMutationResult<
+	{ deleted: boolean },
+	Error,
+	number
+> => {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (id: number) => deleteDiscountCode(id),
+		onSuccess: () =>
+			queryClient.invalidateQueries({ queryKey: DISCOUNT_CODES_QUERY_KEY }),
 	});
 };
 

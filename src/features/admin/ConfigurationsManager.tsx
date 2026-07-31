@@ -8,6 +8,7 @@ import { DropdownMenu } from "../../components/ui/DropdownMenu";
 import { Modal } from "../../components/ui/Modal";
 import { TextField } from "../../components/forms/TextField";
 import type { BookingConfiguration } from "./api";
+import { DiscountCodesManager } from "./DiscountCodesManager";
 import { PriceOverridesManager } from "./PriceOverridesManager";
 import {
 	useAdminSettings,
@@ -385,6 +386,17 @@ export const ConfigurationsManager = (): FunctionComponent => {
 					Add configuration
 				</Button>
 			)}
+
+			<div className="border-t border-neutral-200 pt-6">
+				<h3 className="mb-1 text-lg font-semibold text-neutral-800">
+					Discount codes
+				</h3>
+				<p className="mb-4 text-sm text-neutral-500">
+					Codes guests can enter at checkout for a percentage or flat-rate
+					discount off their total.
+				</p>
+				<DiscountCodesManager />
+			</div>
 		</div>
 	);
 };

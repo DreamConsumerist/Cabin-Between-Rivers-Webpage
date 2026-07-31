@@ -10,7 +10,7 @@ import {
 	endRecurringSeries,
 	getPriceOverrideById,
 	isPriceOverrideOverlapError,
-	listPriceOverrides,
+	listPriceOverridesForAdmin,
 	updatePriceOverride,
 	updatePriceOverrideAndPropagate,
 } from "../../lib/priceOverrides";
@@ -114,7 +114,7 @@ export default withErrorHandling("admin-price-overrides", async (req, _context) 
 				if (!Number.isInteger(configurationId) || configurationId <= 0) {
 					return error("A valid configurationId is required");
 				}
-				return json({ overrides: await listPriceOverrides(configurationId) });
+				return json({ overrides: await listPriceOverridesForAdmin(configurationId) });
 			}
 			case "POST":
 				return await handleCreate(req);

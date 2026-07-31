@@ -102,11 +102,16 @@ export const formatCentsCompact = (cents: number): string =>
 
 export type NightlyLineItem = { date: Dayjs; rateCents: number };
 
+// extraGuestFeeCents, if given, is folded into the per-night rates rather
+// than shown as its own line — spread as evenly as cents allow, with any
+// leftover cent going to the earliest night(s) so the displayed lines still
+// sum to the true total exactly.
 export const buildNightlyBreakdown = (
 	checkIn: Dayjs,
 	checkOut: Dayjs,
 	pricing: Pricing,
-	overrides: Array<PriceOverride>
+	overrides: Array<PriceOverride>,
+	extraGuestFeeCents = 0
 ): Array<NightlyLineItem> => {
 	const nights: Array<NightlyLineItem> = [];
 	let night = checkIn;
@@ -114,5 +119,13 @@ export const buildNightlyBreakdown = (
 		nights.push({ date: night, rateCents: nightlyRateForDate(night, pricing.nightlyRate, overrides) });
 		night = night.add(1, "day");
 	}
-	return nights;
+	if (extraGuestFeeCents <= 0 || nights.length === 0) return nights;
+
+	const share = Math.floor(extraGuestFeeCents / nights.length);
+	let remainder = extraGuestFeeCents - share * nights.length;
+	return nights.map((n) => {
+		const extra = share + (remainder > 0 ? 1 : 0);
+		if (remainder > 0) remainder -= 1;
+		return { ...n, rateCents: n.rateCents + extra };
+	});
 };

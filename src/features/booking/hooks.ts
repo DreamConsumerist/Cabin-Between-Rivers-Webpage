@@ -5,6 +5,7 @@ import {
 	type UseQueryResult,
 } from "@tanstack/react-query";
 import {
+	applyDiscountCode,
 	cancelMyReservation,
 	cancelReservation,
 	createBooking,
@@ -13,6 +14,7 @@ import {
 	fetchCancellableReservation,
 	fetchReservationStatus,
 	uploadIdPhoto,
+	type ApplyDiscountCodeResult,
 	type AvailabilityResult,
 	type CancellableReservation,
 	type CreateBookingInput,
@@ -39,6 +41,15 @@ export const useCreatePayment = (): UseMutationResult<
 	Error,
 	number
 > => useMutation({ mutationFn: (reservationId: number) => createPayment(reservationId) });
+
+export const useApplyDiscountCode = (): UseMutationResult<
+	ApplyDiscountCodeResult,
+	Error,
+	{ reservationId: number; code: string | null }
+> =>
+	useMutation({
+		mutationFn: ({ reservationId, code }) => applyDiscountCode(reservationId, code),
+	});
 
 export const useCancelReservation = (): UseMutationResult<
 	{ cancelled: boolean },

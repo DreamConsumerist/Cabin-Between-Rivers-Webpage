@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { FunctionComponent } from "../../common/types";
+import logo from "../../assets/logo-bw.jpg";
 
 const navLinkClass =
 	"text-sm font-medium text-neutral-600 transition-colors hover:text-brand-700 data-[status=active]:text-brand-700";
@@ -8,7 +9,15 @@ export const Nav = (): FunctionComponent => {
 	return (
 		<header className="relative z-10 bg-white shadow-md">
 			<nav className="flex items-center justify-between px-8 py-4">
-				<Link className="text-lg font-semibold tracking-tight" to="/">
+				<Link
+					className="flex items-center gap-3 text-lg font-semibold tracking-tight"
+					to="/"
+				>
+					<img
+						alt=""
+						className="h-10 w-10 rounded-full object-cover"
+						src={logo}
+					/>
 					Cabin Between Rivers
 				</Link>
 				<div className="flex items-center gap-6">

@@ -3,6 +3,7 @@ import type { FunctionComponent } from "../../common/types";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { TextField } from "../../components/forms/TextField";
+import { MAX_UPLOAD_BYTES, resizeImageForUpload } from "../../common/imageUpload";
 import {
 	useDeleteGalleryPhoto,
 	useGalleryPhotos,
@@ -16,6 +17,7 @@ const UploadForm = (): FunctionComponent => {
 	const upload = useUploadGalleryPhoto();
 	const [file, setFile] = useState<File | null>(null);
 	const [alt, setAlt] = useState("");
+	const [sizeError, setSizeError] = useState<string | null>(null);
 	const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
 	// Revokes each preview URL once it's superseded (by a new file) or the
@@ -26,11 +28,22 @@ const UploadForm = (): FunctionComponent => {
 		};
 	}, [previewUrl]);
 
-	const handleSubmit = (event: FormEvent): void => {
+	const handleSubmit = async (event: FormEvent): Promise<void> => {
 		event.preventDefault();
 		if (!file) return;
+		setSizeError(null);
+
+		// Resized client-side before it ever hits the network — see
+		// imageUpload.ts's comment on why an unedited phone photo can
+		// otherwise fail with an opaque platform error.
+		const resized = await resizeImageForUpload(file);
+		if (resized.size > MAX_UPLOAD_BYTES) {
+			setSizeError("That photo is too large even after resizing — try a smaller image.");
+			return;
+		}
+
 		upload.mutate(
-			{ file, alt: alt.trim() },
+			{ file: resized, alt: alt.trim() },
 			{
 				onSuccess: () => {
 					setFile(null);
@@ -41,7 +54,10 @@ const UploadForm = (): FunctionComponent => {
 	};
 
 	return (
-		<form className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-4" onSubmit={handleSubmit}>
+		<form
+			className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-4"
+			onSubmit={(event) => { void handleSubmit(event); }}
+		>
 			{previewUrl && (
 				<img alt="Selected preview" className="h-16 w-16 rounded-lg object-cover" src={previewUrl} />
 			)}
@@ -51,7 +67,10 @@ const UploadForm = (): FunctionComponent => {
 					accept="image/jpeg,image/png,image/webp,image/gif"
 					className="text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
 					type="file"
-					onChange={(event) => { setFile(event.target.files?.[0] ?? null); }}
+					onChange={(event) => {
+						setFile(event.target.files?.[0] ?? null);
+						setSizeError(null);
+					}}
 				/>
 			</label>
 			<TextField
@@ -62,6 +81,7 @@ const UploadForm = (): FunctionComponent => {
 			<Button disabled={!file || upload.isPending} type="submit">
 				{upload.isPending ? "Uploading…" : "Add photo"}
 			</Button>
+			{sizeError && <p className="w-full text-sm text-red-600">{sizeError}</p>}
 			{upload.isError && <p className="w-full text-sm text-red-600">{upload.error.message}</p>}
 		</form>
 	);

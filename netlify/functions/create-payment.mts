@@ -85,12 +85,16 @@ export default withErrorHandling("create-payment", async (req, _context) => {
 				return_url: `${origin}/booking/confirmation?sessionId={CHECKOUT_SESSION_ID}&reservationId=${reservation.id}`,
 			},
 			{
-				// Scoped to the reservation (not the request) so a double-submit or a
-				// remount mid-checkout (page reload, duplicate click) reuses the same
-				// Checkout Session instead of minting a second one that could later be
-				// paid twice. A reservation only ever has one hold window, so reusing
-				// the key for its lifetime is safe.
-				idempotencyKey: `create-payment-${reservation.id}`,
+				// Scoped to the reservation AND its current amount (not just the
+				// request) so a double-submit or a remount mid-checkout (page reload,
+				// duplicate click) reuses the same Checkout Session instead of minting
+				// a second one that could later be paid twice. The amount is included
+				// because applying/clearing a discount code (apply-discount-code.mts)
+				// changes reservation.amountTotal after a Session may already have been
+				// created for the old total — without this, Stripe's idempotency would
+				// silently hand back the stale pre-discount Session instead of pricing
+				// the new amount.
+				idempotencyKey: `create-payment-${reservation.id}-${reservation.amountTotal}`,
 			}
 		);
 

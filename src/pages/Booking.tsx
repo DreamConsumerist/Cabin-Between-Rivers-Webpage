@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { BookingForm } from "../features/booking/BookingForm";
 import { Calendar, type DateSelection } from "../features/booking/Calendar";
 import { CheckoutStep } from "../features/booking/CheckoutStep";
+import { DiscountCodeForm } from "../features/booking/DiscountCodeForm";
 import { HoldTimer } from "../features/booking/HoldTimer";
 import { TermsStep } from "../features/booking/TermsStep";
 import {
@@ -53,6 +54,8 @@ export const Booking = (): FunctionComponent => {
 	>(undefined);
 	const [termsAccepted, setTermsAccepted] = useState(false);
 	const [idPhotoUploaded, setIdPhotoUploaded] = useState(false);
+	const [discountAmount, setDiscountAmount] = useState(0);
+	const [appliedDiscountCode, setAppliedDiscountCode] = useState<string | null>(null);
 
 	const configurationSwitchingEnabled =
 		availability.data?.configurationSwitchingEnabled ?? false;
@@ -102,10 +105,12 @@ export const Booking = (): FunctionComponent => {
 		setStep("dates");
 		setReservation(null);
 		setSelection({ checkIn: null, checkOut: null });
-		// A fresh reservation needs its own terms acceptance and ID upload, not
-		// whatever was left over from an abandoned one.
+		// A fresh reservation needs its own terms acceptance, ID upload, and
+		// discount state, not whatever was left over from an abandoned one.
 		setTermsAccepted(false);
 		setIdPhotoUploaded(false);
+		setDiscountAmount(0);
+		setAppliedDiscountCode(null);
 		void queryClient.invalidateQueries({ queryKey: ["availability"] });
 	}, [queryClient]);
 
@@ -230,6 +235,8 @@ export const Booking = (): FunctionComponent => {
 					setNotice(null);
 					setTermsAccepted(false);
 					setIdPhotoUploaded(false);
+					setDiscountAmount(0);
+					setAppliedDiscountCode(null);
 					setStep(target);
 					void queryClient.invalidateQueries({ queryKey: ["availability"] });
 				},
@@ -454,12 +461,6 @@ export const Booking = (): FunctionComponent => {
 									<span>Total</span>
 									<span>{formatCents(estimatedSubtotal + estimatedTax)}</span>
 								</div>
-								{pricing.extraGuestFee > 0 && (
-									<p className="mt-2 text-xs text-neutral-500">
-										+{formatCents(pricing.extraGuestFee)} per guest after{" "}
-										{pricing.baseOccupancy} guests
-									</p>
-								)}
 							</div>
 						)}
 						<Button
@@ -485,21 +486,41 @@ export const Booking = (): FunctionComponent => {
 							submitting={createBookingMutation.isPending}
 							onChange={handleGuestDetailsChange}
 							onSubmit={handleGuestSubmit}
-						/>
-						{pricing && (
-							<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
-								{detailsExtraGuestFee > 0 && (
-									<div className="flex justify-between text-neutral-600">
-										<span>Extra guest fee</span>
-										<span>{formatCents(detailsExtraGuestFee)}</span>
+						>
+							{pricing && (
+								<div className="w-full rounded-lg border border-neutral-200 p-4 text-sm">
+									<ul className="flex flex-col gap-1">
+										{buildNightlyBreakdown(
+											checkIn,
+											checkOut,
+											pricing,
+											priceOverrides,
+											detailsExtraGuestFee
+										).map(({ date, rateCents }) => (
+											<li
+												key={date.format("YYYY-MM-DD")}
+												className="flex justify-between text-neutral-600"
+											>
+												<span>{date.format("ddd, MMM D")}</span>
+												<span>{formatCents(rateCents)}</span>
+											</li>
+										))}
+										<li className="flex justify-between text-neutral-600">
+											<span>Cleaning fee</span>
+											<span>{formatCents(pricing.cleaningFee)}</span>
+										</li>
+										<li className="flex justify-between text-neutral-600">
+											<span>Tax (3%)</span>
+											<span>{formatCents(detailsTax)}</span>
+										</li>
+									</ul>
+									<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
+										<span>Total</span>
+										<span>{formatCents(detailsSubtotal + detailsTax)}</span>
 									</div>
-								)}
-								<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
-									<span>Total</span>
-									<span>{formatCents(detailsSubtotal + detailsTax)}</span>
 								</div>
-							</div>
-						)}
+							)}
+						</BookingForm>
 					</div>
 				)}
 
@@ -533,10 +554,63 @@ export const Booking = (): FunctionComponent => {
 							holdExpiresAt={reservation.holdExpiresAt}
 							onExpire={handleExpire}
 						/>
-						<p className="text-neutral-700">
-							Total: {formatCents(reservation.amountTotal)}
-						</p>
-						<CheckoutStep reservationId={reservation.reservationId} />
+						{checkIn && checkOut && pricing && (
+							<div className="w-full max-w-sm rounded-lg border border-neutral-200 p-4 text-sm">
+								<ul className="flex flex-col gap-1">
+									{buildNightlyBreakdown(
+										checkIn,
+										checkOut,
+										pricing,
+										priceOverrides,
+										detailsExtraGuestFee
+									).map(({ date, rateCents }) => (
+										<li
+											key={date.format("YYYY-MM-DD")}
+											className="flex justify-between text-neutral-600"
+										>
+											<span>{date.format("ddd, MMM D")}</span>
+											<span>{formatCents(rateCents)}</span>
+										</li>
+									))}
+									<li className="flex justify-between text-neutral-600">
+										<span>Cleaning fee</span>
+										<span>{formatCents(pricing.cleaningFee)}</span>
+									</li>
+									<li className="flex justify-between text-neutral-600">
+										<span>Tax (3%)</span>
+										<span>{formatCents(detailsTax)}</span>
+									</li>
+									{discountAmount > 0 && (
+										<li className="flex justify-between text-green-700">
+											<span>
+												Discount{appliedDiscountCode ? ` (${appliedDiscountCode})` : ""}
+											</span>
+											<span>−{formatCents(discountAmount)}</span>
+										</li>
+									)}
+								</ul>
+								<div className="mt-2 flex justify-between border-t border-neutral-200 pt-2 font-semibold text-neutral-900">
+									<span>Total</span>
+									<span>{formatCents(reservation.amountTotal)}</span>
+								</div>
+							</div>
+						)}
+						<DiscountCodeForm
+							reservationId={reservation.reservationId}
+							onChange={(result) => {
+								setDiscountAmount(result.discountAmount);
+								setAppliedDiscountCode(result.code);
+								setReservation({ ...reservation, amountTotal: result.amountTotal });
+							}}
+						/>
+						{/* Keyed on amountTotal: a Stripe Checkout Session is priced once at
+						creation, so applying/removing a discount code (which changes the
+						amount) needs a fresh mount to pick up the new total — see
+						CheckoutStep's cleanup effect and create-payment.mts's idempotency key. */}
+						<CheckoutStep
+							key={reservation.amountTotal}
+							reservationId={reservation.reservationId}
+						/>
 						{cancelReservationMutation.isPending && (
 							<p className="text-sm text-neutral-500">Going back…</p>
 						)}

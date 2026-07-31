@@ -9,6 +9,12 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+  # sharp ships a native binary per-platform — esbuild can't inline it, so this
+  # tells the bundler to copy node_modules/sharp as-is instead of trying to
+  # bundle it into the function's JS. Netlify's build runs on Linux, so the
+  # binary it copies at deploy time is the linux-x64 one regardless of what a
+  # local `pnpm install` on another OS resolved.
+  external_node_modules = ["sharp"]
 
 # `netlify dev` runs Vite + Functions together on http://localhost:8888
 [dev]

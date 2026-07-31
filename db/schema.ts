@@ -56,6 +56,31 @@ export const bookingConfigurations = pgTable("booking_configurations", {
 		.defaultNow(),
 });
 
+// Admin-managed discount codes (see lib/discountCodes.ts), applied by a guest
+// during the booking flow's payment step (apply-discount-code.mts) against a
+// still-pending reservation. `code` is normalized to uppercase at the
+// application layer (both on create and on lookup) so matching is
+// case-insensitive without needing a citext column.
+export const DISCOUNT_TYPES = ["percent", "flat"] as const;
+export type DiscountType = (typeof DISCOUNT_TYPES)[number];
+
+export const discountCodes = pgTable(
+	"discount_codes",
+	{
+		id: integer().primaryKey().generatedAlwaysAsIdentity(),
+		code: varchar({ length: 50 }).notNull(),
+		discountType: varchar("discount_type", { length: 10 }).$type<DiscountType>().notNull(),
+		// percent: 1-100 (a percentage, not cents); flat: cents. Which one
+		// applies is discountType — see lib/discountCodes.ts's computeDiscountCents.
+		discountValue: integer("discount_value").notNull(),
+		active: boolean().notNull().default(true),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.notNull()
+			.defaultNow(),
+	},
+	(table) => [uniqueIndex("discount_codes_code_idx").on(table.code)]
+);
+
 // Bookings made on THIS site. `status` drives availability:
 //   pending   — held while the guest completes payment (see holdExpiresAt)
 //   confirmed — payment succeeded (set by the Stripe webhook)
@@ -100,6 +125,20 @@ export const reservations = pgTable("reservations", {
 	// before this feature shipped simply have no self-cancel link (their
 	// confirmation email never included one either); every new row gets one.
 	cancellationToken: varchar("cancellation_token", { length: 64 }),
+	// The discount code applied at checkout, if any — set together with
+	// discountAmount by lib/discountCodes.ts's applyDiscountCode, which also
+	// recomputes amountTotal down from the pre-discount total. Kept as a
+	// nullable FK (not just the code string) so a later rename/deletion of the
+	// discountCodes row doesn't orphan this reservation's own record of what
+	// was applied. NO ACTION on delete, same as doubleBookingConflicts.reservationId
+	// above — admins delete codes going forward, not history.
+	discountCodeId: integer("discount_code_id").references(() => discountCodes.id),
+	// Cents subtracted from the stay's full price to arrive at amountTotal —
+	// i.e. amountTotal + discountAmount always recovers the pre-discount total,
+	// which is how apply-discount-code.mts re-applies a changed code without
+	// needing a separate "original amount" column. Zero when no code is
+	// applied (the common case).
+	discountAmount: integer("discount_amount").notNull().default(0),
 	// Resend email ids for the scheduled arrival-instructions / pre-checkout
 	// reminders (see lib/mailer.ts's scheduleCheckInReminder/
 	// scheduleCheckOutReminder) — null until scheduled. Doubles as the

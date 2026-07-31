@@ -84,3 +84,26 @@ export const priceOverrideFormSchema = z.object({
 
 export type PriceOverrideFormInput = z.input<typeof priceOverrideFormSchema>;
 export type PriceOverrideFormValues = z.output<typeof priceOverrideFormSchema>;
+
+// discountValue is entered as a plain integer in the UI — a percentage 1-100
+// for "percent", or whole dollars converted to cents before hitting the API
+// for "flat" (same dollars-in-the-UI/cents-on-the-wire convention as
+// configurationFormSchema above). Cross-field max (percent <= 100) is
+// re-checked with .refine since it depends on discountType.
+export const discountCodeFormSchema = z
+	.object({
+		code: z
+			.string()
+			.trim()
+			.min(1, "Required")
+			.max(50, "Must be 50 characters or fewer"),
+		discountType: z.enum(["percent", "flat"]),
+		discountValue: z.coerce.number().positive("Must be more than 0"),
+	})
+	.refine(
+		(v) => v.discountType !== "percent" || v.discountValue <= 100,
+		{ message: "A percentage discount can't exceed 100", path: ["discountValue"] }
+	);
+
+export type DiscountCodeFormInput = z.input<typeof discountCodeFormSchema>;
+export type DiscountCodeFormValues = z.output<typeof discountCodeFormSchema>;

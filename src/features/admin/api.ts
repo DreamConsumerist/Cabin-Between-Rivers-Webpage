@@ -334,6 +334,40 @@ export const reopenConflict = (id: number): Promise<{ conflict: Conflict }> =>
 		body: JSON.stringify({ id, resolved: false }),
 	});
 
+export type DiscountType = "percent" | "flat";
+
+export type DiscountCode = {
+	id: number;
+	code: string;
+	discountType: DiscountType;
+	// percent: 1-100; flat: cents — see db/schema.ts's discountCodes.
+	discountValue: number;
+	active: boolean;
+	createdAt: string;
+};
+
+export type DiscountCodeInput = {
+	code: string;
+	discountType: DiscountType;
+	discountValue: number;
+};
+
+export const fetchDiscountCodes = (): Promise<{
+	discountCodes: Array<DiscountCode>;
+}> => jsonFetch("/api/admin-discount-codes");
+
+export const createDiscountCode = (
+	input: DiscountCodeInput
+): Promise<{ discountCode: DiscountCode }> =>
+	jsonFetch("/api/admin-discount-codes", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(input),
+	});
+
+export const deleteDiscountCode = (id: number): Promise<{ deleted: boolean }> =>
+	jsonFetch(`/api/admin-discount-codes?id=${id}`, { method: "DELETE" });
+
 export const adminCancelReservation = (
 	reservationId: number
 ): Promise<{ reservation: AdminBooking; refunded: boolean }> =>

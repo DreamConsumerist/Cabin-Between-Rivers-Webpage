@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { FunctionComponent } from "../../common/types";
@@ -11,6 +11,10 @@ type BookingFormProps = {
 	onChange?: (values: Partial<GuestDetailsInput>) => void;
 	onSubmit: (data: GuestDetails) => void;
 	submitting: boolean;
+	// Rendered between the fields and the submit button — the pricing summary
+	// in Booking.tsx's "details" step, so it reflects the guest count as it's
+	// being typed without needing its own separate form/state.
+	children?: ReactNode;
 };
 
 export const BookingForm = ({
@@ -18,6 +22,7 @@ export const BookingForm = ({
 	onChange,
 	onSubmit,
 	submitting,
+	children,
 }: BookingFormProps): FunctionComponent => {
 	const {
 		register,
@@ -71,6 +76,7 @@ export const BookingForm = ({
 				{...register("guests")}
 				error={errors.guests?.message}
 			/>
+			{children}
 			<Button disabled={submitting} type="submit">
 				{submitting ? "Holding your dates…" : "Continue to payment"}
 			</Button>

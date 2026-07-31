@@ -21,9 +21,8 @@ export const Route = createFileRoute("/")({
 					image: "https://cabinbetweenrivers.com/og-image.jpg",
 					url: "https://cabinbetweenrivers.com/",
 					// address, telephone, and priceRange are deliberately omitted —
-					// real property/contact info isn't public yet (see Footer.tsx's
-					// placeholder email and SETUP.md's guest-email-detail TODO item).
-					// Add them here once that's resolved.
+					// that info isn't public yet (see SETUP.md's SEO known-issue item).
+					// Add them here once it exists.
 				},
 			},
 		],

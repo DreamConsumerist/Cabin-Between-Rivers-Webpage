@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FunctionComponent } from "../../common/types";
+import { MAX_UPLOAD_BYTES, resizeImageForUpload } from "../../common/imageUpload";
 import { useUploadIdPhoto } from "./hooks";
 
 type TermsStepProps = {
@@ -48,6 +49,7 @@ export const TermsStep = ({
 
 	const uploadIdPhoto = useUploadIdPhoto();
 	const [file, setFile] = useState<File | null>(null);
+	const [sizeError, setSizeError] = useState<string | null>(null);
 	const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
 
 	useEffect(() => {
@@ -56,14 +58,25 @@ export const TermsStep = ({
 		};
 	}, [previewUrl]);
 
-	const handleFileChange = (selected: File | null): void => {
+	const handleFileChange = async (selected: File | null): Promise<void> => {
 		setFile(selected);
+		setSizeError(null);
 		if (!selected) return;
 		// A newly-picked file supersedes any prior successful upload — require
 		// this one to finish before "Continue to payment" is allowed again.
 		onIdPhotoUploadedChange(false);
+
+		// Resized client-side before it ever hits the network — an unedited
+		// phone photo can otherwise fail with an opaque platform error (see
+		// imageUpload.ts's comment).
+		const resized = await resizeImageForUpload(selected);
+		if (resized.size > MAX_UPLOAD_BYTES) {
+			setSizeError("That photo is too large even after resizing — try a smaller image.");
+			return;
+		}
+
 		uploadIdPhoto.mutate(
-			{ reservationId, file: selected },
+			{ reservationId, file: resized },
 			{ onSuccess: () => { onIdPhotoUploadedChange(true); } }
 		);
 	};
@@ -107,11 +120,12 @@ export const TermsStep = ({
 							accept="image/jpeg,image/png,image/webp"
 							className="text-sm text-neutral-500 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
 							type="file"
-							onChange={(event) => { handleFileChange(event.target.files?.[0] ?? null); }}
+							onChange={(event) => { void handleFileChange(event.target.files?.[0] ?? null); }}
 						/>
 					</label>
 				</div>
 				{uploadIdPhoto.isPending && <p className="text-sm text-neutral-500">Uploading…</p>}
+				{sizeError && <p className="text-sm text-red-600">{sizeError}</p>}
 				{uploadIdPhoto.isError && (
 					<p className="text-sm text-red-600">{uploadIdPhoto.error.message}</p>
 				)}

@@ -73,6 +73,25 @@ export const createPayment = (reservationId: number): Promise<{ clientSecret: st
 		body: JSON.stringify({ reservationId }),
 	});
 
+export type ApplyDiscountCodeResult = {
+	amountTotal: number;
+	discountAmount: number;
+	applied: boolean;
+	code: string | null;
+};
+
+// code: null clears whatever discount is currently applied — see
+// netlify/functions/apply-discount-code.mts.
+export const applyDiscountCode = (
+	reservationId: number,
+	code: string | null
+): Promise<ApplyDiscountCodeResult> =>
+	jsonFetch("/api/apply-discount-code", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ reservationId, code }),
+	});
+
 export const fetchReservationStatus = (
 	reservationId: number
 ): Promise<{ status: ReservationStatus }> =>

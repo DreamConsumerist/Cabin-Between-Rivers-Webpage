@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import type { FunctionComponent } from "../common/types";
 import heroImage from "../assets/hero.jpg";
+import locationMap from "../assets/location-map.jpg";
+import logo from "../assets/logo-bw.jpg";
 
 type Amenity = { title: string; description: string };
 
@@ -35,9 +37,15 @@ export const Home = (): FunctionComponent => {
 				/>
 				<div className="absolute inset-0 bg-linear-to-b from-transparent from-35% to-white to-75% sm:bg-linear-to-r sm:from-20% sm:to-50%" />
 				<div className="relative flex h-full w-full flex-col items-center justify-end gap-6 px-8 pb-16 text-center sm:absolute sm:inset-y-0 sm:right-0 sm:w-1/2 sm:justify-center sm:px-10 sm:pb-0">
-					<h1 className="max-w-xl text-4xl font-semibold tracking-tight text-neutral-900 sm:text-5xl">
-						Cabin Between Rivers
-					</h1>
+					<img
+						alt=""
+						className="h-72 w-72 rounded-full object-cover sm:h-80 sm:w-80"
+						src={logo}
+					/>
+					{/* The name is already legible in the logo mark above — this stays
+					for document structure/SEO (a page should have an h1) and screen
+					readers, without repeating the text visually. */}
+					<h1 className="sr-only">Cabin Between Rivers</h1>
 					<p className="max-w-xl text-lg text-neutral-600">
 						A quiet stay, right where two rivers meet.
 					</p>
@@ -63,6 +71,16 @@ export const Home = (): FunctionComponent => {
 							</p>
 						</div>
 					))}
+				</div>
+			</section>
+
+			<section className="w-full">
+				<div className="mx-auto flex max-w-3xl flex-col items-center px-8 pb-16 text-center">
+					<img
+						alt="Map showing the cabin's location off the highway between the Kenai and Kasilof Rivers"
+						className="w-full rounded-xl border border-neutral-200"
+						src={locationMap}
+					/>
 				</div>
 			</section>
 

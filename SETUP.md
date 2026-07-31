@@ -443,14 +443,6 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
 
 ## Known issues / TODO
 
-- **Favicon needs attribution** — `public/favicon.png` (referenced from `index.html`) came from
-  [flaticon.com/free-icon/cabin_92596](https://www.flaticon.com/free-icon/cabin_92596), used under
-  Flaticon's free license, which requires attribution unless a premium (attribution-free) license is
-  purchased. Not yet added anywhere on the site — check the Flaticon page itself for the exact
-  required credit line/author name (the free-license terms want the specific wording used, not just
-  a generic mention) before adding it, e.g. as a credit line in the footer or an `/about` mention
-  linking back to that page. Low risk at this traffic level, but should still be done properly.
-
 - **Gallery lightbox has no swipe navigation on mobile** — `src/components/ui/Gallery.tsx`. The
   `Lightbox` component only advances photos via the on-screen chevron buttons (`onPrev`/`onNext`) or
   arrow keys (`ArrowLeft`/`ArrowRight` in its `keydown` handler) — there's no touch/swipe gesture, so
@@ -473,6 +465,14 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   minimal — no property address, check-in/check-out times, contact info, or cancellation policy.
   Deliberately deferred until the site's own property info is accurate (see the design-pass note
   above) — no point templating in details that are still wrong.
+
+- **Discount codes have no expiry, usage cap, or minimum-stay condition** — `lib/discountCodes.ts` /
+  `netlify/functions/admin-discount-codes.mts`. An admin can add a percent or flat-cents code and
+  delete it, and a guest applies it at the payment step (`apply-discount-code.mts`), but there's no
+  date range, redemption limit, or per-configuration/minimum-nights restriction — a code is either on
+  (`active`) or gone. Deliberately simple initial version; the `discountCodes` table would need new
+  columns (e.g. `expiresAt`, `maxUses`, `usedCount`) and matching checks in `applyDiscountCode` to
+  support any of that.
 
 - **Guest self-cancellation is all-or-nothing — full refund or no self-service, no fee tiers yet** —
   `netlify/functions/cancel-my-reservation.mts` (linked from the guest confirmation email, gated by
@@ -519,10 +519,11 @@ Next up: confirm Phase 5 locally, then Phase 7 (go live) — see "First producti
   `public/robots.txt` + `public/sitemap.xml`. `/admin`, `/booking/confirmation`, and `/booking/cancel` all
   set `noindex` via the same `head()` mechanism (transactional/gated pages, not `/admin` alone).
 
-  Still open: (1) the JSON-LD deliberately omits `address`/`telephone`/`priceRange` — blocked on the same
-  placeholder business info as `Footer.tsx`'s `hello@example.com` and the guest-email-detail item above;
-  fill those in together once real property info exists. (2) Submitting the site + sitemap to Google
+  Still open: (1) the JSON-LD deliberately omits `address`/`telephone`/`priceRange` — `Footer.tsx`'s
+  contact email is real now, but the property address/phone number and the guest-email-detail item above
+  are still open; fill those in together once that info exists. (2) Submitting the site + sitemap to Google
   Search Console and Bing Webmaster Tools — deliberately not done yet, now that the metadata behind it is
   real instead of a thin/duplicate-titled shell. (3) The OG image (`public/og-image.jpg`, reused from
-  `hero.jpg`) is a 2600×910 banner crop, notably wider than OG's recommended ~1200×630 — link-preview
-  crops may look odd until it's re-cropped closer to that ratio.
+  `hero.jpg`) is a 1200×420 banner crop — downsized from the original 2600×910 to cut file weight, but
+  still wider than OG's recommended ~1200×630 — link-preview crops may look odd until it's re-cropped
+  closer to that ratio.

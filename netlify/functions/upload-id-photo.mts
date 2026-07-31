@@ -4,7 +4,10 @@ import { getReservationById, setReservationIdPhoto } from "../../lib/availabilit
 import { deleteIdPhotoBlob, putIdPhotoBlob } from "../../lib/blobs";
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_BYTES = 10 * 1024 * 1024;
+// See admin-gallery.mts's MAX_BYTES comment — same Netlify platform-level
+// request-body ceiling, same client-side resize as the first line of
+// defense (src/common/imageUpload.ts), this is just the backstop.
+const MAX_BYTES = 5 * 1024 * 1024;
 
 // POST /api/upload-id-photo — multipart/form-data: `reservationId`, `file`.
 // Required before payment (see src/features/booking/TermsStep.tsx) for a
@@ -30,7 +33,7 @@ export default withErrorHandling("upload-id-photo", async (req, _context) => {
 	const file = form.get("file");
 	if (!(file instanceof File)) return error("A file is required");
 	if (!ALLOWED_TYPES.has(file.type)) return error("Unsupported image type");
-	if (file.size > MAX_BYTES) return error("Image is too large (max 10MB)");
+	if (file.size > MAX_BYTES) return error("Image is too large (max 5MB)");
 
 	const reservation = await getReservationById(reservationId);
 	if (!reservation) return error("Reservation not found", 404);
